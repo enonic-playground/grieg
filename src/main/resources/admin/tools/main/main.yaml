@@ -1,0 +1,15 @@
+kind: 'AdminTool'
+title:
+  text: 'Grieg'
+  i18n: 'admin.tool.main.displayName'
+description:
+  text: 'AI integrations, scheduled jobs and workflows'
+  i18n: 'admin.tool.main.description'
+allow:
+  - 'role:system.admin'
+apis:
+  - 'admin:extension'
+  - 'admin:status'
+  - 'system'
+  - 'workflows'
+  - 'crons'

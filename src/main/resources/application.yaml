@@ -1,0 +1,6 @@
+kind: 'Application'
+title: 'Grieg'
+description: 'Orchestrates AI integrations, scheduled jobs and workflows in XP'
+vendorName: 'Enonic'
+vendorUrl: 'https://enonic.com'
+url: 'https://github.com/enonic-playground/grieg'

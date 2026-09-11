@@ -1,0 +1,4 @@
+kind: 'API'
+title: 'Crons API'
+allow:
+  - 'role:system.admin'

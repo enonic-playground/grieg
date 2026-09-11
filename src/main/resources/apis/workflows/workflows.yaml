@@ -1,0 +1,4 @@
+kind: 'API'
+title: 'Workflows API'
+allow:
+  - 'role:system.admin'

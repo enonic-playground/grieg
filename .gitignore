@@ -1,0 +1,11 @@
+.gradle/
+build/
+node_modules/
+
+.vite/
+.vite-cache/
+.vite-hooks/_
+.oxlintcache
+*.tsbuildinfo
+
+.tmp/

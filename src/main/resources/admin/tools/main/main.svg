@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <path
+    fill="currentColor"
+    fill-rule="evenodd"
+    d="
+      M173.5 158.5
+      L347.5 235
+      L326.5 290.5
+      L365 354.5
+      L264.5 441.5
+      H0
+      V248.5
+      H58
+      Z
+
+      M236 267
+      L294 302
+      L258 339
+      C230.3 361 189.8 322.9 210 294
+      Z
+    "
+  />
+
+  <path
+    fill="currentColor"
+    d="
+      M202 137.5
+      L288 70.5
+      C327.7 98.3 308.5 145.9 276 170.5
+      Z
+    "
+  />
+
+  <path
+    fill="currentColor"
+    d="M500.5 201.5 L512 228.5 L361 290 L359.5 285 L373 253 Z"
+  />
+</svg>

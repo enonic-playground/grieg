@@ -1,0 +1,33 @@
+allowBuilds:
+  esbuild: false
+
+catalog:
+  # Held on the 0.1.x line: vite-plus 0.2.x has no matching @voidzero-dev/vite-plus-test
+  # release yet (latest is 0.1.24), and `vp test` breaks against the mismatched runner.
+  vite: npm:@voidzero-dev/vite-plus-core@^0.1.24
+  vite-plus: ^0.1.24
+  vitest: npm:@voidzero-dev/vite-plus-test@~0.1.24
+
+ignoredBuiltDependencies:
+  - esbuild
+  - unrs-resolver
+
+minimumReleaseAge: 4320
+
+minimumReleaseAgeExclude:
+  - '@enonic-types/*'
+
+onlyBuiltDependencies:
+  - esbuild
+
+overrides:
+  vite: 'catalog:'
+  vitest: 'catalog:'
+
+peerDependencyRules:
+  allowAny:
+    - vite
+    - vitest
+  allowedVersions:
+    vite: '*'
+    vitest: '*'

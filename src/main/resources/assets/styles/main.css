@@ -1,0 +1,177 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+@import 'tailwindcss';
+
+/* Explicit so class detection works from any Vite root — the dev harness serves from `dev/`. */
+@source '../js';
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+/*
+ * Theme tokens (HSL channel values)
+ *
+ * Blue-gray palette with an indigo accent.
+ *
+ * Usage: `background-color: hsl(var(--background));`
+ * Tailwind: `bg-background`, `text-foreground`, etc.
+ */
+
+:root {
+  /* Base */
+  --background: 240 13% 95%;
+  --foreground: 240 17% 8%;
+
+  /* Surface (sidebar, header, cards) */
+  --card: 0 0% 100%;
+  --card-foreground: 240 17% 8%;
+
+  /* Primary (brand accent — red) */
+  --primary: 250 72% 60%;
+  --primary-foreground: 0 0% 100%;
+
+  /* Secondary (badges, tags) */
+  --secondary: 240 21% 94%;
+  --secondary-foreground: 240 12% 40%;
+
+  /* Muted (elevated surfaces, table headers) */
+  --muted: 240 23% 97%;
+  --muted-foreground: 240 12% 40%;
+
+  /* Accent (nav active, hover highlight) */
+  --accent: 240 38% 94%;
+  --accent-foreground: 240 17% 8%;
+
+  /* Destructive */
+  --destructive: 250 72% 60%;
+  --destructive-foreground: 0 0% 100%;
+
+  /* Borders & inputs */
+  --border: 240 17% 91%;
+  --input: 240 17% 91%;
+  --ring: 250 72% 60%;
+
+  --radius: 0.5rem;
+
+  /* Extended tokens */
+  --border-accent: 240 20% 82%;
+  --accent-muted: 250 86% 97%;
+  --text-dimmed: 240 12% 70%;
+  --row-hover: 240 25% 95%;
+
+  /* Status colors */
+  --success: 142 76% 36%;
+  --warning: 32 95% 44%;
+  --info: 221 83% 53%;
+}
+
+.dark {
+  /* Base */
+  --background: 240 8% 5%;
+  --foreground: 240 15% 95%;
+
+  /* Surface */
+  --card: 240 8% 7%;
+  --card-foreground: 240 15% 95%;
+
+  /* Primary */
+  --primary: 250 72% 60%;
+  --primary-foreground: 0 0% 100%;
+
+  /* Secondary */
+  --secondary: 240 12% 13%;
+  --secondary-foreground: 240 20% 53%;
+
+  /* Muted */
+  --muted: 240 8% 10%;
+  --muted-foreground: 240 11% 58%;
+
+  /* Accent */
+  --accent: 240 12% 13%;
+  --accent-foreground: 240 15% 95%;
+
+  /* Destructive */
+  --destructive: 250 72% 60%;
+  --destructive-foreground: 0 0% 100%;
+
+  /* Borders & inputs */
+  --border: 240 7% 15%;
+  --input: 240 7% 15%;
+  --ring: 250 72% 60%;
+
+  /* Extended tokens */
+  --border-accent: 240 8% 20%;
+  --accent-muted: 250 25% 10%;
+  --text-dimmed: 240 14% 31%;
+  --row-hover: 0 0% 100% / 0.045;
+
+  /* Status colors */
+  --success: 142 71% 45%;
+  --warning: 38 92% 50%;
+  --info: 217 91% 60%;
+}
+
+@theme inline {
+  /* Fonts */
+  --font-sans: 'Inter', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+
+  /* Standard shadcn colors */
+  --color-background: hsl(var(--background));
+  --color-foreground: hsl(var(--foreground));
+
+  --color-card: hsl(var(--card));
+  --color-card-foreground: hsl(var(--card-foreground));
+
+  --color-primary: hsl(var(--primary));
+  --color-primary-foreground: hsl(var(--primary-foreground));
+
+  --color-secondary: hsl(var(--secondary));
+  --color-secondary-foreground: hsl(var(--secondary-foreground));
+
+  --color-muted: hsl(var(--muted));
+  --color-muted-foreground: hsl(var(--muted-foreground));
+
+  --color-accent: hsl(var(--accent));
+  --color-accent-foreground: hsl(var(--accent-foreground));
+
+  --color-destructive: hsl(var(--destructive));
+  --color-destructive-foreground: hsl(var(--destructive-foreground));
+
+  --color-border: hsl(var(--border));
+  --color-input: hsl(var(--input));
+  --color-ring: hsl(var(--ring));
+
+  /* Extended colors */
+  --color-border-accent: hsl(var(--border-accent));
+  --color-accent-muted: hsl(var(--accent-muted));
+  --color-text-dimmed: hsl(var(--text-dimmed));
+  --color-row-hover: hsl(var(--row-hover));
+
+  --color-success: hsl(var(--success));
+  --color-warning: hsl(var(--warning));
+  --color-info: hsl(var(--info));
+
+  /* Radii */
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
+@layer base {
+  * {
+    border-color: hsl(var(--border));
+  }
+
+  body {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+    background-color: hsl(var(--background));
+    color: hsl(var(--foreground));
+  }
+
+  button:not(:disabled),
+  [role='button']:not(:disabled) {
+    cursor: pointer;
+  }
+}

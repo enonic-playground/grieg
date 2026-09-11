@@ -1,0 +1,7 @@
+kind: 'API'
+title: 'MCP API'
+description: 'Model Context Protocol endpoint for content operations'
+# Public by descriptor: the endpoint authenticates callers itself with the bearer token
+# from com.enonic.app.grieg.cfg, and refuses every request while that token is unset.
+allow:
+  - 'role:system.everyone'
