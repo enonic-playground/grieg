@@ -5,3 +5,5 @@ description: 'Model Context Protocol endpoint for content operations'
 # from com.enonic.app.grieg.cfg, and refuses every request while that token is unset.
 allow:
   - 'role:system.everyone'
+mount:
+  - 'web'

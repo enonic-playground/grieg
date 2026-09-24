@@ -205,6 +205,10 @@ export default defineConfig({
     root: __dirname,
     environment: 'node',
     include: ['src/test/**/*.test.{ts,tsx}'],
+    // Server modules import XP libraries by absolute path; tests get stubs instead.
+    alias: [
+      { find: /^\/lib\/xp\/(.*)$/, replacement: path.join(__dirname, 'src/test/stubs/xp/$1.ts') },
+    ],
     setupFiles: ['./src/test/setup-dom.ts', './src/test/setup-i18n.ts'],
     passWithNoTests: true,
   },

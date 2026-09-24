@@ -49,7 +49,7 @@ pnpm dev
 
 **Scheduling** uses core `lib-scheduler`, not the community `lib-cron`: scheduler jobs are persisted and cluster-aware, so a job fires once per cluster rather than once per node. `apis/crons` currently reads jobs and toggles `enabled`; creating jobs needs a task descriptor, which arrives with the workflow runner.
 
-**MCP endpoint:** `apis/mcp` is a stateless JSON-RPC 2.0 transport over HTTP POST implementing `initialize`, `ping`, `tools/list` and `tools/call`. Its descriptor allows `role:system.everyone`, so the bearer token from the app config is the only gate — and an unset `mcp.token` disables the endpoint rather than leaving it open. Tools (`lib/tools.ts`) run content operations in a context configured by the same file.
+**MCP endpoint:** `apis/mcp` (mounted on `web`, so served at `/api/com.enonic.app.grieg:mcp`) is a stateless MCP server over HTTP POST. It serves protocol `2026-07-28` and the legacy `initialize` handshake from one method table in `lib/mcp.ts`; the era comes from the `MCP-Protocol-Version` header, then `params._meta`, and a thin wrapper applies what differs (header checks, `resultType`, 404 for unknown methods). Its descriptor allows `role:system.everyone`, so the bearer token from the app config is the only gate — and an unset `mcp.token` disables the endpoint rather than leaving it open. XP replaces 401 bodies with its login page, so rejections are logged. The three content tools (`lib/tools.ts`, with pure shaping in `lib/content-shape.ts`) run as the configured `mcp.user` without a `principals` override, and refuse to run when XP resolves that user to anonymous. `lib/mcp.ts` and `lib/content-shape.ts` stay free of `/lib/xp/*` imports; tests reach `lib/tools.ts` through the `/lib/xp/*` stubs aliased in `vite.config.ts`.
 
 ## Configuration
 
@@ -59,7 +59,9 @@ pnpm dev
 mcp.token = <shared secret clients send as `Authorization: Bearer <token>`>
 mcp.project = default
 mcp.branch = draft
-mcp.principal = role:system.admin
+mcp.user = su
+mcp.idProvider = system
+mcp.allowedOrigins = <comma-separated browser origins, empty by default>
 ```
 
 ## XP 8 Descriptors
