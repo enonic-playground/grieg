@@ -49,7 +49,7 @@ pnpm dev
 
 **Scheduling** uses core `lib-scheduler`, not the community `lib-cron`: scheduler jobs are persisted and cluster-aware, so a job fires once per cluster rather than once per node. `apis/crons` currently reads jobs and toggles `enabled`; creating jobs needs a task descriptor, which arrives with the workflow runner.
 
-**MCP endpoint:** `apis/mcp` (mounted on `web`, so served at `/api/com.enonic.app.grieg:mcp`) is a stateless MCP server over HTTP POST. It serves protocol `2026-07-28` and the legacy `initialize` handshake from one method table in `lib/mcp.ts`; the era comes from the `MCP-Protocol-Version` header, then `params._meta`, and a thin wrapper applies what differs (header checks, `resultType`, 404 for unknown methods). Its descriptor allows `role:system.everyone`, so the bearer token from the app config is the only gate — and an unset `mcp.token` disables the endpoint rather than leaving it open. XP replaces 401 bodies with its login page, so rejections are logged. The three content tools (`lib/tools.ts`, with pure shaping in `lib/content-shape.ts`) run as the configured `mcp.user` without a `principals` override, and refuse to run when XP resolves that user to anonymous. `lib/mcp.ts` and `lib/content-shape.ts` stay free of `/lib/xp/*` imports; tests reach `lib/tools.ts` through the `/lib/xp/*` stubs aliased in `vite.config.ts`.
+**MCP endpoint:** `apis/mcp` (mounted on `web`, so served at `/api/com.enonic.app.grieg:mcp`) is a stateless MCP server over HTTP POST. It serves protocol `2026-07-28` and the legacy `initialize` handshake from one method table in `lib/mcp.ts`; the era comes from the `MCP-Protocol-Version` header, then `params._meta`, and a thin wrapper applies what differs (header checks, `resultType`, 404 for unknown methods). Its descriptor allows `role:system.everyone`, so `lib/access.ts` is the whole gate, in order: any cookie is refused (XP would otherwise admit a logged-in admin's session), an `Origin` must be listed in `mcp.allowedOrigins` or be same-origin with the request, as XP resolves it with `X-Forwarded-*`, on a trusted host (DNS-rebinding protection), an unset `mcp.token` or `mcp.user` disables the endpoint rather than leaving it open, and the bearer token must match. XP replaces 401 bodies, and anonymous 403s, with its login page, so every rejection is logged with its reason: an `Origin`/`Host` rejection names the value and the config key that would admit it, a disabled endpoint names the key to set, and a cookie rejection names the cookies but never their values. The three content tools (`lib/tools.ts`, with pure shaping in `lib/content-shape.ts`) run as the configured `mcp.user` without a `principals` override, and refuse to run when XP resolves that user to anonymous. `lib/mcp.ts`, `lib/access.ts` and `lib/content-shape.ts` stay free of `/lib/xp/*` imports; tests reach `lib/tools.ts` through the `/lib/xp/*` stubs aliased in `vite.config.ts`.
 
 ## Configuration
 
@@ -59,10 +59,13 @@ pnpm dev
 mcp.token = <shared secret clients send as `Authorization: Bearer <token>`>
 mcp.project = default
 mcp.branch = draft
-mcp.user = su
+mcp.user = <required, no default; unset disables the endpoint>
 mcp.idProvider = system
 mcp.allowedOrigins = <comma-separated browser origins, empty by default>
+mcp.allowedHosts = <comma-separated hostnames trusted besides localhost, 127.0.0.1, [::1]>
 ```
+
+`pnpm conformance` runs the pinned MCP conformance suite against a running XP and gates on `dev/conformance-allowlist.json` (manual, needs `GRIEG_MCP_TOKEN`).
 
 ## XP 8 Descriptors
 

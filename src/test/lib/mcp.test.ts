@@ -165,6 +165,34 @@ describe('handle: transport', () => {
     expect(reply.body).toMatchObject({ id: null, error: { code: ErrorCode.INVALID_REQUEST } });
   });
 
+  it('should reject a null id in the legacy era', () => {
+    const reply = send(
+      { jsonrpc: '2.0', id: null, method: 'tools/list' },
+      { 'MCP-Protocol-Version': '2025-03-26' },
+    );
+
+    expect(reply.status).toBe(400);
+    expect(reply.body).toEqual({
+      jsonrpc: '2.0',
+      id: null,
+      error: { code: ErrorCode.INVALID_REQUEST, message: '`id` must be a string or number' },
+    });
+  });
+
+  it('should reject a null id in the modern era', () => {
+    const reply = send(
+      { jsonrpc: '2.0', id: null, method: 'tools/list', params: { _meta: MODERN_META } },
+      { 'MCP-Protocol-Version': LATEST_VERSION, 'Mcp-Method': 'tools/list' },
+    );
+
+    expect(reply.status).toBe(400);
+    expect(reply.body).toEqual({
+      jsonrpc: '2.0',
+      id: null,
+      error: { code: ErrorCode.INVALID_REQUEST, message: '`id` must be a string or number' },
+    });
+  });
+
   it('should reject non-object params', () => {
     const reply = send({ jsonrpc: '2.0', id: 4, method: 'ping', params: [1] });
 
@@ -298,7 +326,6 @@ describe('handle: modern era', () => {
       supportedVersions: SUPPORTED_VERSIONS,
       capabilities: { tools: { listChanged: false } },
       instructions: 'Use the tools.',
-      serverInfo: INFO,
       ttlMs: 300_000,
       cacheScope: 'private',
       resultType: 'complete',

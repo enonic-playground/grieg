@@ -2,7 +2,7 @@ import * as contentLib from '/lib/xp/content';
 import * as contextLib from '/lib/xp/context';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { McpConfig } from '../../main/resources/lib/config';
+import type { ToolsConfig } from '../../main/resources/lib/config';
 import type { Tool, ToolOutcome } from '../../main/resources/lib/mcp';
 import type { Content } from '@enonic-types/core';
 
@@ -15,13 +15,14 @@ const update = vi.mocked(contentLib.update);
 const run = vi.mocked(contextLib.run);
 const getContext = vi.mocked(contextLib.get);
 
-const CONFIG: McpConfig = {
+const CONFIG: ToolsConfig = {
   token: 't',
   project: 'default',
   branch: 'draft',
   user: 'editor',
   idProvider: 'system',
   allowedOrigins: [],
+  allowedHosts: [],
 };
 
 const EDIT_BASE = 'http://localhost:8080/admin/cs/main/default/edit';

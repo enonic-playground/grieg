@@ -245,7 +245,6 @@ const METHODS: Record<string, MethodEntry> = {
         supportedVersions: SUPPORTED_VERSIONS,
         capabilities: { tools: { listChanged: false } },
         instructions: server.instructions,
-        serverInfo: server.info,
       },
     }),
   },
@@ -395,8 +394,8 @@ export function handle(request: HttpRequest, server: Server): HttpReply {
   // A notification carries no id and gets no body.
   if (payload.id === undefined) return { status: 202 };
 
-  if (payload.id !== null && typeof payload.id !== 'string' && typeof payload.id !== 'number') {
-    return reject(400, null, ErrorCode.INVALID_REQUEST, '`id` must be a string, number or null');
+  if (typeof payload.id !== 'string' && typeof payload.id !== 'number') {
+    return reject(400, null, ErrorCode.INVALID_REQUEST, '`id` must be a string or number');
   }
 
   if (payload.params !== undefined && !isObject(payload.params)) {
