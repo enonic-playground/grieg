@@ -19,6 +19,7 @@ pnpm fix                        # Format + auto-fix lint
 pnpm test                       # Vitest only
 pnpm dev                        # React app on :5275 against mocked APIs, no XP (see dev/)
 pnpm conformance                # MCP conformance suite against a running XP (manual)
+node dev/mcp-stdio.ts           # stdio→HTTP MCP forwarder for stdio-only clients (README → MCP)
 ```
 
 - `vite-plus` (`vp`) drives lint (Oxlint), build (Rolldown) and tests (Vitest) for client
@@ -28,6 +29,8 @@ pnpm conformance                # MCP conformance suite against a running XP (ma
   no tsconfig sets `moduleResolution`, `esModuleInterop` or `allowSyntheticDefaultImports`.
 - `pnpm conformance` needs `GRIEG_MCP_TOKEN` and gates on `dev/conformance-allowlist.json`.
   README → Conformance covers `--update` and the vhost caveat.
+- `dev/mcp-stdio.ts` keeps its header, era and error logic in `dev/mcp-stdio-protocol.ts`, which
+  `src/test/dev/` runs against `lib/mcp.ts` `handle()`. Change both when the header rules change.
 
 ## Server code
 
