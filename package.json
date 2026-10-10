@@ -20,6 +20,7 @@
     "check": "vp lint && pnpm run check:types && pnpm run test",
     "check:types": "tsc --noEmit -p src/main/resources/tsconfig.json && tsc --noEmit && tsc --noEmit -p dev/tsconfig.json",
     "test": "vp test --run",
+    "conformance": "node dev/conformance.ts",
     "fix": "vp fmt && vp lint --fix",
     "prepare": "vp config"
   },

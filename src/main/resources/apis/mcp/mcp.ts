@@ -2,11 +2,11 @@ import { getToolUrl } from '/lib/xp/admin';
 
 import type { Request, Response } from '@enonic-types/core';
 
-import { getMcpConfig, type McpConfig } from '../../lib/config';
-import { handle, safeEqual, type HttpReply, type Server } from '../../lib/mcp';
+import { checkAccess, originOf, type Rejection } from '../../lib/access';
+import { getMcpConfig } from '../../lib/config';
+import { handle, type HttpReply, type Server } from '../../lib/mcp';
 import { createContentTools, serverInstructions } from '../../lib/tools';
 
-const BEARER_PREFIX = 'Bearer ';
 const CONTENT_STUDIO = 'com.enonic.app.contentstudio';
 
 function toResponse({ status, body }: HttpReply): Response {
@@ -15,9 +15,16 @@ function toResponse({ status, body }: HttpReply): Response {
     : { status, contentType: 'application/json', body: JSON.stringify(body) };
 }
 
-// XP swaps the body of a 401 for its login page, so the reason only reaches the log.
-function unauthorized(req: Request, reason: string): Response {
-  log.warning(`MCP request from ${req.remoteAddress} rejected: ${reason}`);
+// On the default port XP turns a 401, and an anonymous 403, into its login page, so the reason
+// only reaches the log.
+function deny(req: Request, rejection: Rejection): Response {
+  log.warning(`MCP request from ${req.remoteAddress} rejected: ${rejection.reason}`);
+  if (rejection.status === 403) {
+    return toResponse({
+      status: 403,
+      body: { jsonrpc: '2.0', id: null, error: { code: -32_600, message: rejection.message } },
+    });
+  }
   return {
     status: 401,
     contentType: 'application/json',
@@ -26,48 +33,24 @@ function unauthorized(req: Request, reason: string): Response {
   };
 }
 
-// The descriptor lets everyone reach this endpoint, so the token is the only gate. An
-// unset token disables the endpoint outright rather than leaving it open.
-function checkToken(req: Request, config: McpConfig): Response | undefined {
-  if (config.token == null) {
-    return unauthorized(req, 'endpoint is disabled, set `mcp.token` in the app config');
-  }
-
-  const header = req.getHeader('Authorization');
-  if (header == null || !header.startsWith(BEARER_PREFIX)) {
-    return unauthorized(req, 'missing bearer token');
-  }
-  if (!safeEqual(header.slice(BEARER_PREFIX.length), config.token)) {
-    return unauthorized(req, 'invalid bearer token');
-  }
-  return undefined;
-}
-
-function checkOrigin(req: Request, config: McpConfig): Response | undefined {
-  const origin = req.getHeader('Origin');
-  if (origin == null || config.allowedOrigins.includes(origin)) return undefined;
-
-  log.warning(`MCP request rejected: Origin '${origin}' is not in \`mcp.allowedOrigins\``);
-  return toResponse({
-    status: 403,
-    body: { jsonrpc: '2.0', error: { code: -32_600, message: `Origin not allowed: ${origin}` } },
-  });
-}
-
-function contentStudioEditBase(req: Request, project: string): string {
+function contentStudioEditBase(origin: string, project: string): string {
   const toolUrl = getToolUrl(CONTENT_STUDIO, 'main');
-  const isDefaultPort =
-    (req.scheme === 'http' && req.port === 80) || (req.scheme === 'https' && req.port === 443);
-  const origin = `${req.scheme}://${req.host}${isDefaultPort ? '' : `:${req.port}`}`;
   const absolute = toolUrl.startsWith('/') ? `${origin}${toolUrl}` : toolUrl;
   return `${absolute}/${project}/edit`;
 }
 
 export function post(req: Request): Response {
-  const config = getMcpConfig();
-
-  const denied = checkOrigin(req, config) ?? checkToken(req, config);
-  if (denied != null) return denied;
+  const origin = originOf(req.scheme, req.host, req.port);
+  const access = checkAccess(
+    {
+      header: (name) => req.getHeader(name) ?? undefined,
+      cookieNames: Object.keys(req.cookies ?? {}),
+      origin,
+    },
+    getMcpConfig(),
+  );
+  if ('rejection' in access) return deny(req, access.rejection);
+  const { config } = access;
 
   const server: Server = {
     info: {
@@ -77,7 +60,7 @@ export function post(req: Request): Response {
       description: 'Enonic XP content tools: search, read and update content',
     },
     instructions: serverInstructions(config),
-    tools: createContentTools(config, contentStudioEditBase(req, config.project)),
+    tools: createContentTools(config, contentStudioEditBase(origin, config.project)),
   };
 
   const reply = handle(

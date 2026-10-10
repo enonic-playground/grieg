@@ -24,7 +24,7 @@ export function get(_req: Request): Response {
     xpVersion: getVersion(),
     appName: app.name,
     appVersion: app.version,
-    mcpEnabled: mcp.token != null,
+    mcpEnabled: mcp.token != null && mcp.user != null,
     mcpProject: mcp.project,
     mcpBranch: mcp.branch,
   };

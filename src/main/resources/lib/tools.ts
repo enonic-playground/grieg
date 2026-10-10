@@ -1,7 +1,7 @@
 import * as contentLib from '/lib/xp/content';
 import { get as getContext, run } from '/lib/xp/context';
 
-import type { McpConfig } from './config';
+import type { ToolsConfig } from './config';
 import type { Tool, ToolOutcome } from './mcp';
 import type { Content } from '@enonic-types/core';
 
@@ -33,13 +33,13 @@ function fail(message: string): ToolOutcome {
   return { ok: false, message };
 }
 
-function userKey(config: McpConfig): string {
+function userKey(config: ToolsConfig): string {
   return `user:${config.idProvider}:${config.user}`;
 }
 
 // No `principals` override: the configured user's own permissions apply, and XP records
 // that user as the modifier.
-function asConfiguredUser(config: McpConfig, callback: () => ToolOutcome): ToolOutcome {
+function asConfiguredUser(config: ToolsConfig, callback: () => ToolOutcome): ToolOutcome {
   return run(
     {
       repository: `${CONTENT_REPO_PREFIX}${config.project}`,
@@ -134,13 +134,13 @@ const SCALAR_SCHEMA = { type: ['string', 'number', 'boolean'] };
 // * Tools
 //
 
-function draftNote(config: McpConfig): string {
+function draftNote(config: ToolsConfig): string {
   return config.branch === 'draft'
     ? 'Writes go to the draft branch: they are not live until published in Content Studio, and every update resets the workflow state to in-progress.'
     : `Writes go straight to the \`${config.branch}\` branch.`;
 }
 
-export function serverInstructions(config: McpConfig): string {
+export function serverInstructions(config: ToolsConfig): string {
   return [
     `Content tools for Enonic XP project \`${config.project}\`, branch \`${config.branch}\`, acting as ${userKey(config)}.`,
     'Find items with content_search (by `text`, or by `path` to list children), read one with content_get, change one with content_update.',
@@ -151,7 +151,7 @@ export function serverInstructions(config: McpConfig): string {
   ].join('\n');
 }
 
-export function createContentTools(config: McpConfig, editBase: string): Tool[] {
+export function createContentTools(config: ToolsConfig, editBase: string): Tool[] {
   const where = `project \`${config.project}\`, branch \`${config.branch}\``;
   const notFound = (key: string) =>
     fail(`No content at \`${key}\` in ${where}. Use content_search to find it.`);
