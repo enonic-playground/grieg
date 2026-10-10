@@ -32,4 +32,34 @@ describe('getMcpConfig', () => {
       allowedOrigins: [],
     });
   });
+
+  it('should enable both toolsets, writes and every repository by default', () => {
+    withConfig({});
+
+    expect(getMcpConfig()).toMatchObject({
+      toolsets: ['content', 'nodes'],
+      readOnly: false,
+      nodeRepos: [],
+    });
+  });
+
+  it('should read mcp.toolsets, mcp.readOnly and mcp.nodes.repos', () => {
+    withConfig({
+      'mcp.toolsets': 'nodes',
+      'mcp.readOnly': 'TRUE',
+      'mcp.nodes.repos': 'com.enonic.app.grieg, scratch',
+    });
+
+    expect(getMcpConfig()).toMatchObject({
+      toolsets: ['nodes'],
+      readOnly: true,
+      nodeRepos: ['com.enonic.app.grieg', 'scratch'],
+    });
+  });
+
+  it('should serve no toolsets when mcp.toolsets is present but blank', () => {
+    withConfig({ 'mcp.toolsets': ' ' });
+
+    expect(getMcpConfig().toolsets).toEqual([]);
+  });
 });

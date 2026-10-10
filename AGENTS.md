@@ -45,9 +45,9 @@ pnpm conformance                # MCP conformance suite against a running XP (ma
   name a server lib after one of them.
 - `delete` is a reserved word: write a DELETE handler as a named function and export it with
   `export { handleDelete as delete }`.
-- `lib/mcp.ts`, `lib/access.ts`, `lib/content-shape.ts` and `lib/config.ts` stay free of
-  `/lib/xp/*` imports so tests can load them directly. Tests reach the other server modules
-  through the `/lib/xp/*` stubs aliased in `vite.config.ts`.
+- `lib/mcp.ts`, `lib/access.ts`, `lib/content-shape.ts`, `lib/node-shape.ts` and
+  `lib/config.ts` stay free of `/lib/xp/*` imports so tests can load them directly. Tests reach
+  the other server modules through the `/lib/xp/*` stubs aliased in `vite.config.ts`.
 
 ## Client code
 
@@ -75,8 +75,14 @@ phrases), which the React bundle reads at boot.
     and the host must also be trusted. Same-origin alone does not stop DNS rebinding.
   - XP replaces 401 bodies and anonymous 403s with its login page, so the log is the only
     place a rejection reason appears. Never log a cookie value or a token.
-  - The content tools (`lib/tools.ts`) run as `mcp.user` without a `principals` override, and
-    refuse to run when XP silently resolves that user to anonymous.
+  - The content tools (`lib/tools.ts`) and node tools (`lib/node-tools.ts`) run as `mcp.user`
+    through `lib/run-as.ts`, without a `principals` override, and refuse to run when XP
+    silently resolves that user to anonymous.
+  - lib-repo `list()` is admin-only, so `node_repos` lists as admin and keeps only branches
+    where a `count: 0` query as the user finds a node. Content repositories keep project roles
+    off the root node, and `exists()` runs as admin, so neither proves access.
+  - `node_create` must pass `_inheritsPermissions: true`: without it lib-node grants admins
+    everything and `role:system.everyone` READ.
 
 App config keys, their defaults and their behavior are documented once, in README →
 Configuration. Change that block whenever a key changes.

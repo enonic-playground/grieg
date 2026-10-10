@@ -49,6 +49,18 @@ mcp.allowedOrigins =
 # Hostnames, without port, that a same-origin browser request may target, comma-separated.
 # `localhost`, `127.0.0.1` and `[::1]` are always trusted.
 mcp.allowedHosts =
+
+# Toolsets to serve, comma-separated: `content` (content_*) and `nodes` (node_*). Unknown
+# names are ignored with a log warning; a blank value serves no tools at all.
+mcp.toolsets = content,nodes
+
+# `true` removes content_update, node_create and node_update from `tools/list`, and refuses
+# them if called anyway.
+mcp.readOnly = false
+
+# Repositories the node tools may use, comma-separated exact ids. Empty means every
+# repository except `system-repo` and `system.*`, which are always denied.
+mcp.nodes.repos =
 ```
 
 > [!IMPORTANT]
@@ -62,11 +74,18 @@ XP picks up changes to this file without a restart.
 
 The endpoint is `http://<host>:8080/api/com.enonic.app.grieg:mcp`, a stateless MCP server over HTTP POST. It speaks protocol `2026-07-28` (`server/discover` plus per-request `_meta`) and the legacy `initialize` handshake (`2025-11-25`, `2025-06-18`, `2025-03-26`) from the same URL.
 
-| Tool             | Does                                                                                       |
-| ---------------- | ------------------------------------------------------------------------------------------ |
-| `content_search` | Full-text search by `text`, or list the children of `path`; returns compact summaries      |
-| `content_get`    | One item by id or path, with `data` (default), `x`, `page` or `attachments` on request     |
-| `content_update` | Change `displayName`, `language` or top-level scalar `data` fields, with conflict checking |
+| Tool             | Does                                                                                        |
+| ---------------- | ------------------------------------------------------------------------------------------- |
+| `content_search` | Full-text search by `text`, or list the children of `path`; returns compact summaries       |
+| `content_get`    | One item by id or path, with `data` (default), `x`, `page` or `attachments` on request      |
+| `content_update` | Change `displayName`, `language` or top-level scalar `data` fields, with conflict checking  |
+| `node_repos`     | Repositories and branches `mcp.user` can read, with whether the node tools may write them   |
+| `node_query`     | lib-node query (DSL or NoQL) with filters, sort, capped aggregations, `fields` and a cursor |
+| `node_get`       | One node by id or path, with `data` (default), `permissions`, `indexConfig` or `fields`     |
+| `node_create`    | Create a node under a parent; permissions are inherited and cannot be set                   |
+| `node_update`    | `set` and `unset` dot paths on a node, with `expectedVersionKey` conflict checking          |
+
+The node tools run as `mcp.user` too, so XP's node permissions decide what they can read and write. `system-repo` and `system.*` repositories are never available. `com.enonic.cms.*` repositories are read-only through `node_*`, since a lib-node write would bypass content validation, the workflow reset and project roles; content writes go through `content_update`. Branches default to `draft` for content repositories and `master` elsewhere. `expectedVersionKey` is checked inside lib-node's update editor, which has no lock: it catches a write that landed since your read, but not one landing during the update itself.
 
 Summaries carry an `editUrl` into Content Studio. On the `draft` branch, edits need publishing in Content Studio to go live, and each edit resets the item's workflow state to in-progress.
 
