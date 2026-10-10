@@ -112,6 +112,41 @@ Or share it through `.mcp.json`, keeping the token in the environment:
 
 Tool names are `mcp__grieg__content_search` and so on, which is what permission allowlists match.
 
+### Stdio clients
+
+Clients that only speak MCP over stdio, or setups that keep the token out of the client config, can use `dev/mcp-stdio.ts`. It is a dependency-free forwarder that POSTs each stdin message to the endpoint and writes the replies, JSON or SSE, to stdout. It needs Node 24 or newer and a checkout of this repository. Run it with `node` directly, not through `pnpm run`, which writes to stdout.
+
+| Variable         | Meaning                                                                                                |
+| ---------------- | ------------------------------------------------------------------------------------------------------ |
+| `MCP_URL`        | The endpoint URL. Required                                                                             |
+| `MCP_TOKEN`      | The bearer token                                                                                       |
+| `MCP_TOKEN_FILE` | A file holding the token, or an XP config with an `mcp.token = …` line, used when `MCP_TOKEN` is unset |
+
+```bash
+claude mcp add grieg --env MCP_URL=http://localhost:8080/api/com.enonic.app.grieg:mcp \
+  --env MCP_TOKEN_FILE=$XP_HOME/config/com.enonic.app.grieg.cfg \
+  -- node /path/to/grieg/dev/mcp-stdio.ts
+```
+
+```json
+{
+  "mcpServers": {
+    "grieg": {
+      "command": "node",
+      "args": ["/path/to/grieg/dev/mcp-stdio.ts"],
+      "env": {
+        "MCP_URL": "http://localhost:8080/api/com.enonic.app.grieg:mcp",
+        "MCP_TOKEN": "${GRIEG_MCP_TOKEN}"
+      }
+    }
+  }
+}
+```
+
+Both protocol eras pass through. The forwarder sets `MCP-Protocol-Version` from each request's `_meta`, or from the version `initialize` negotiated, plus `Mcp-Method` and `Mcp-Name`. A reply that is not JSON-RPC, such as XP's login page on a rejected token, or a network failure, reaches the client as a JSON-RPC error with code `-32000`. `notifications/cancelled` aborts the matching request. Logs go to stderr. Claude Code does not need the forwarder, since it speaks HTTP directly.
+
+For a static token, the third-party `mcp-remote` (`npx mcp-remote <url> --header "Authorization: Bearer <token>" --protocol auto`) is an alternative.
+
 ### Troubleshooting
 
 A rejected token gets `401`, but XP replaces the body with its login page, so the reason (disabled endpoint, missing or invalid token) is only in the XP log as a `MCP request … rejected` warning. The same applies to a disallowed `Origin` or `Host` and to a request carrying cookies: the endpoint answers 403, but XP turns a 403 for an anonymous caller into its 401 login challenge. An `Origin` or `Host` warning names the rejected value and the config key that would admit it, and a disabled-endpoint warning names the key to set. A cookie warning lists the cookie names, never their values, and a bearer warning says only whether the token was missing or invalid.
