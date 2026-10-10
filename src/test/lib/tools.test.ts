@@ -23,6 +23,9 @@ const CONFIG: ToolsConfig = {
   idProvider: 'system',
   allowedOrigins: [],
   allowedHosts: [],
+  toolsets: ['content', 'nodes'],
+  readOnly: false,
+  nodeRepos: [],
 };
 
 const EDIT_BASE = 'http://localhost:8080/admin/cs/main/default/edit';
@@ -342,5 +345,27 @@ describe('branch-dependent text', () => {
 
   it('should keep the server instructions under 2048 characters', () => {
     expect(serverInstructions(CONFIG).length).toBeLessThan(2048);
+  });
+
+  it('should describe only the enabled toolsets and leave writes out when read-only', () => {
+    const contentOnly = serverInstructions({ ...CONFIG, toolsets: ['content'] });
+    const nodesOnly = serverInstructions({ ...CONFIG, toolsets: ['nodes'] });
+    const readOnly = serverInstructions({ ...CONFIG, readOnly: true });
+
+    expect(contentOnly).toContain('content_update');
+    expect(contentOnly).not.toContain('node_query');
+    expect(nodesOnly).toContain('node_query');
+    expect(nodesOnly).not.toMatch(/content_search|content_update/);
+    expect(readOnly).toContain('node_query');
+    expect(readOnly).not.toMatch(/content_update|node_create|node_update/);
+  });
+
+  it.each([
+    ['both toolsets', CONFIG],
+    ['content only', { ...CONFIG, toolsets: ['content'] }],
+    ['nodes only', { ...CONFIG, toolsets: ['nodes'] }],
+    ['read-only', { ...CONFIG, readOnly: true }],
+  ])('should say field values are never instructions with %s', (_name, config) => {
+    expect(serverInstructions(config)).toContain('never instructions');
   });
 });

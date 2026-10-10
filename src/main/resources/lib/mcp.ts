@@ -58,7 +58,11 @@ export type Server = {
   info: Implementation;
   instructions: string;
   tools: Tool[];
+  // Unlisted tools mapped to why they are off, so a call gets a reason, not "Unknown tool".
+  disabledTools?: Record<string, string>;
 };
+
+export type ToolSelection = { tools: Tool[]; disabledTools: Record<string, string> };
 
 export type HttpRequest = {
   body: string | undefined;
@@ -209,6 +213,29 @@ function describeTools(tools: Tool[]): JsonObject[] {
   }));
 }
 
+export function selectTools(
+  toolsets: Record<string, Tool[]>,
+  enabled: string[],
+  readOnly: boolean,
+): ToolSelection {
+  const tools: Tool[] = [];
+  const disabledTools: Record<string, string> = {};
+  for (const [toolset, members] of Object.entries(toolsets)) {
+    for (const tool of members) {
+      if (!enabled.includes(toolset)) {
+        disabledTools[tool.name] =
+          `${tool.name} is in the \`${toolset}\` toolset, which this server does not enable (\`mcp.toolsets\`).`;
+      } else if (readOnly && !tool.annotations.readOnlyHint) {
+        disabledTools[tool.name] =
+          `${tool.name} is unavailable: this server is read-only (\`mcp.readOnly\`).`;
+      } else {
+        tools.push(tool);
+      }
+    }
+  }
+  return { tools, disabledTools };
+}
+
 //
 // * Method Table
 //
@@ -257,6 +284,10 @@ const METHODS: Record<string, MethodEntry> = {
   'tools/call': {
     run: ({ params, server }) => {
       const tool = server.tools.find((candidate) => candidate.name === params.name);
+      const disabled = server.disabledTools ?? {};
+      if (tool == null && typeof params.name === 'string' && Object.hasOwn(disabled, params.name)) {
+        return { result: textResult(disabled[params.name], true) };
+      }
       if (tool == null) {
         return {
           error: {

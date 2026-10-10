@@ -4,7 +4,8 @@ import type { Request, Response } from '@enonic-types/core';
 
 import { checkAccess, originOf, type Rejection } from '../../lib/access';
 import { getMcpConfig } from '../../lib/config';
-import { handle, type HttpReply, type Server } from '../../lib/mcp';
+import { handle, selectTools, type HttpReply, type Server, type Tool } from '../../lib/mcp';
+import { createNodeTools } from '../../lib/node-tools';
 import { createContentTools, serverInstructions } from '../../lib/tools';
 
 const CONTENT_STUDIO = 'com.enonic.app.contentstudio';
@@ -39,6 +40,16 @@ function contentStudioEditBase(origin: string, project: string): string {
   return `${absolute}/${project}/edit`;
 }
 
+let warnedToolsets = '';
+
+// Config is read per request, so the warning is repeated only when the unknown names change.
+function warnUnknownToolsets(unknown: string[]): void {
+  const names = unknown.join(', ');
+  if (names === warnedToolsets) return;
+  warnedToolsets = names;
+  if (names !== '') log.warning(`MCP ignores unknown toolsets in \`mcp.toolsets\`: ${names}`);
+}
+
 export function post(req: Request): Response {
   const origin = originOf(req.scheme, req.host, req.port);
   const access = checkAccess(
@@ -52,15 +63,23 @@ export function post(req: Request): Response {
   if ('rejection' in access) return deny(req, access.rejection);
   const { config } = access;
 
+  const toolsets: Record<string, Tool[]> = {
+    content: createContentTools(config, contentStudioEditBase(origin, config.project)),
+    nodes: createNodeTools(config),
+  };
+  warnUnknownToolsets(config.toolsets.filter((name) => !Object.hasOwn(toolsets, name)));
+  const { tools, disabledTools } = selectTools(toolsets, config.toolsets, config.readOnly);
+
   const server: Server = {
     info: {
       name: app.name,
       title: 'Grieg',
       version: app.version,
-      description: 'Enonic XP content tools: search, read and update content',
+      description: 'Enonic XP tools: search, read and update content and repository nodes',
     },
     instructions: serverInstructions(config),
-    tools: createContentTools(config, contentStudioEditBase(origin, config.project)),
+    tools,
+    disabledTools,
   };
 
   const reply = handle(

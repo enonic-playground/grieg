@@ -70,13 +70,13 @@ function fail<T>(message: string): Parsed<T> {
   return { ok: false, message };
 }
 
-function unknownKeys(args: JsonObject, allowed: readonly string[]): string | undefined {
+export function unknownKeys(args: JsonObject, allowed: readonly string[]): string | undefined {
   const extra = Object.keys(args).filter((key) => !allowed.includes(key));
   if (extra.length === 0) return undefined;
   return `Unknown argument(s): ${extra.join(', ')}. Allowed: ${allowed.join(', ')}.`;
 }
 
-function optionalString(args: JsonObject, key: string): Parsed<string | undefined> {
+export function optionalString(args: JsonObject, key: string): Parsed<string | undefined> {
   const value = args[key];
   if (value == null) return { ok: true, value: undefined };
   if (typeof value !== 'string') return fail(`\`${key}\` must be a string.`);
@@ -84,7 +84,7 @@ function optionalString(args: JsonObject, key: string): Parsed<string | undefine
   return { ok: true, value: trimmed === '' ? undefined : trimmed };
 }
 
-function optionalInteger(args: JsonObject, key: string): Parsed<number | undefined> {
+export function optionalInteger(args: JsonObject, key: string): Parsed<number | undefined> {
   const value = args[key];
   if (value == null) return { ok: true, value: undefined };
   if (typeof value !== 'number' || !Number.isInteger(value)) {
@@ -146,7 +146,7 @@ export function parseGetArgs(args: JsonObject): Parsed<GetArgs> {
   return { ok: true, value: { key: key.value, include: include as Subtree[] } };
 }
 
-function isScalar(value: unknown): value is Scalar {
+export function isScalar(value: unknown): value is Scalar {
   return (
     typeof value === 'string' ||
     typeof value === 'boolean' ||

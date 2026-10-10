@@ -3,6 +3,7 @@
 const DEFAULT_PROJECT = 'default';
 const DEFAULT_BRANCH = 'draft';
 const DEFAULT_ID_PROVIDER = 'system';
+const DEFAULT_TOOLSETS = ['content', 'nodes'];
 
 export type McpConfig = {
   token?: string;
@@ -13,6 +14,10 @@ export type McpConfig = {
   idProvider: string;
   allowedOrigins: string[];
   allowedHosts: string[];
+  toolsets: string[];
+  readOnly: boolean;
+  // Empty means every repository the deny rules leave.
+  nodeRepos: string[];
 };
 
 export type ToolsConfig = McpConfig & { user: string };
@@ -38,5 +43,9 @@ export function getMcpConfig(): McpConfig {
     idProvider: value('mcp.idProvider') ?? DEFAULT_ID_PROVIDER,
     allowedOrigins: list('mcp.allowedOrigins'),
     allowedHosts: list('mcp.allowedHosts'),
+    // Present but blank means no toolsets, so an operator can switch every tool off.
+    toolsets: app.config['mcp.toolsets'] == null ? DEFAULT_TOOLSETS : list('mcp.toolsets'),
+    readOnly: value('mcp.readOnly')?.toLowerCase() === 'true',
+    nodeRepos: list('mcp.nodes.repos'),
   };
 }

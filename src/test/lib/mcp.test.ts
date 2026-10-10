@@ -9,6 +9,7 @@ import {
   handle,
   LATEST_VERSION,
   safeEqual,
+  selectTools,
   SUPPORTED_VERSIONS,
 } from '../../main/resources/lib/mcp';
 
@@ -499,5 +500,52 @@ describe('handle: modern era', () => {
     const reply = modern('tools/call', { name: 'nope' });
 
     expect(error(reply).code).toBe(ErrorCode.INVALID_PARAMS);
+  });
+});
+
+describe('selectTools', () => {
+  const write: Tool = {
+    ...echo,
+    name: 'write',
+    annotations: { readOnlyHint: false, idempotentHint: true, openWorldHint: false },
+  };
+  const toolsets = { content: [echo, write], nodes: [boom] };
+
+  it('should list every tool of the enabled toolsets', () => {
+    const { tools, disabledTools } = selectTools(toolsets, ['content', 'nodes'], false);
+
+    expect(tools.map((t) => t.name)).toEqual(['echo', 'write', 'boom']);
+    expect(disabledTools).toEqual({});
+  });
+
+  it('should unlist write tools when read-only and tools of toolsets not enabled', () => {
+    const { tools, disabledTools } = selectTools(toolsets, ['content'], true);
+
+    expect(tools.map((t) => t.name)).toEqual(['echo']);
+    expect(disabledTools.write).toContain('`mcp.readOnly`');
+    expect(disabledTools.boom).toContain('`nodes` toolset');
+  });
+
+  it('should refuse a call to a disabled tool with its reason instead of Unknown tool', () => {
+    const { tools, disabledTools } = selectTools(toolsets, ['content'], true);
+    const server: Server = { ...SERVER, tools, disabledTools };
+
+    const reply = handle(
+      {
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: 3,
+          method: 'tools/call',
+          params: { name: 'write' },
+        }),
+        header: () => undefined,
+      },
+      server,
+    );
+
+    expect(result(reply)).toEqual({
+      content: [{ type: 'text', text: disabledTools.write }],
+      isError: true,
+    });
   });
 });
