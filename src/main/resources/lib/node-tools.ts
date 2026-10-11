@@ -5,7 +5,7 @@ import { list as listRepos } from '/lib/xp/repo';
 import type { ToolsConfig } from './config';
 import type { Tool, ToolOutcome } from './mcp';
 
-import { MAX_COUNT, SUBTREE_BUDGET } from './content-shape';
+import { MAX_COUNT, SUBTREE_BUDGET, type Parsed } from './content-shape';
 import {
   defaultBranch,
   limitAggregations,
@@ -33,6 +33,36 @@ import { asConfiguredUser } from './run-as';
 const ADMIN_PRINCIPAL = 'role:system.admin';
 
 type JsonObject = Record<string, unknown>;
+
+// The typed values node_update can rebuild from the string node_get shows for them.
+const RETYPABLE = [
+  {
+    name: 'Instant',
+    className: 'java.time.Instant',
+    factory: 'parse',
+    example: '2026-01-01T00:00:00Z',
+  },
+  {
+    name: 'LocalDateTime',
+    className: 'java.time.LocalDateTime',
+    factory: 'parse',
+    example: '2026-01-01T12:00:00',
+  },
+  { name: 'LocalDate', className: 'java.time.LocalDate', factory: 'parse', example: '2026-01-01' },
+  { name: 'LocalTime', className: 'java.time.LocalTime', factory: 'parse', example: '12:00:00' },
+  {
+    name: 'GeoPoint',
+    className: 'com.enonic.xp.util.GeoPoint',
+    factory: 'from',
+    example: '59.91,10.75',
+  },
+  {
+    name: 'Reference',
+    className: 'com.enonic.xp.util.Reference',
+    factory: 'from',
+    example: 'my-node-id',
+  },
+] as const;
 
 function ok(value: JsonObject): ToolOutcome {
   return { ok: true, value };
@@ -81,6 +111,32 @@ function inRepo(
 function toArray<T>(value: T | T[] | null): T[] {
   if (value == null) return [];
   return Array.isArray(value) ? value : [value];
+}
+
+function retype(path: string, stored: unknown, value: unknown): Parsed<unknown> {
+  const type = Array.isArray(stored)
+    ? undefined
+    : RETYPABLE.find(({ className }) => stored instanceof Java.type(className));
+  if (type == null) {
+    return {
+      ok: false,
+      message: `\`${path}\` holds a value node_update cannot replace without changing its type, such as a link, a binary reference or several typed values.`,
+    };
+  }
+  if (typeof value !== 'string') {
+    return {
+      ok: false,
+      message: `\`${path}\` is stored as ${type.name}; set it to a string such as \`${type.example}\`.`,
+    };
+  }
+  try {
+    return { ok: true, value: Java.type(type.className)[type.factory](value) };
+  } catch (e) {
+    return {
+      ok: false,
+      message: `\`${path}\` is stored as ${type.name}, and \`${value}\` is not a valid one (e.g. \`${type.example}\`): ${errorMessage(e)}`,
+    };
+  }
 }
 
 // Content repositories keep project roles off the root node, so a root read would hide them;
@@ -400,6 +456,7 @@ export function createNodeTools(config: ToolsConfig): Tool[] {
     description:
       'Change properties of one node in a non-content repository. `set` maps dot paths to a string, number, boolean or array of those, creating missing parent objects; `unset` lists dot paths to remove. ' +
       'System properties (`_id`, `_name`, `_path`, `_permissions`, `_childOrder`, …) cannot be changed. ' +
+      'A path holding a date, time, geo point or reference keeps its type: set it to a string in the form node_get shows. Other typed values (links, binary references, several typed values in one property) are refused, and a refused path fails the whole update. Xml properties read as plain strings, so a set on one stores a String. ' +
       'Pass `expectedVersionKey` (`_versionKey` from your last read) to refuse the write if the node changed since; lib-node has no lock, so a write landing during the update itself still wins.',
     inputSchema: {
       type: 'object',
@@ -469,6 +526,7 @@ export function createNodeTools(config: ToolsConfig): Tool[] {
         // lib-node has no lock, so the editor re-checks the version to narrow the race.
         const plan = initial.value;
         let raced: string | undefined;
+        let refused: string | undefined;
         let updated: Node<JsonObject>;
         try {
           updated = connection.update<JsonObject>({
@@ -478,11 +536,17 @@ export function createNodeTools(config: ToolsConfig): Tool[] {
                 raced = current._versionKey;
                 throw new Error('modified concurrently');
               }
-              return plan.apply(current) as unknown as UpdatedNode<JsonObject>;
+              return plan.apply(current, (path, stored, value) => {
+                const retyped = retype(path, stored, value);
+                if (retyped.ok) return retyped.value;
+                refused = retyped.message;
+                throw new Error('typed value refused');
+              }) as unknown as UpdatedNode<JsonObject>;
             },
           });
         } catch (e) {
           if (raced != null) return conflict(raced);
+          if (refused != null) return fail(`${refused} Nothing was written.`);
           throw e;
         }
 

@@ -68,10 +68,13 @@ export type UpdateArgs = Target & {
   expectedVersionKey?: string;
 };
 
+// Returns the value to store at `path` in place of a typed `stored` value, or throws to refuse.
+export type Retype = (path: string, stored: unknown, value: DataValue) => unknown;
+
 export type UpdatePlan = {
   changed: string[];
   previous: JsonObject;
-  apply: <T extends JsonObject>(node: T) => T;
+  apply: <T extends JsonObject>(node: T, retype: Retype) => T;
 };
 
 export type Truncated = { truncated: true; size: number; message: string };
@@ -610,8 +613,18 @@ function readObjectPath(node: JsonObject, segments: string[]): unknown {
   return current;
 }
 
-// Plans against a node as reads return it. The update editor gets raw Java values for typed
-// properties (dates, references, geo points), so the plan is never re-made there.
+// The update editor gets typed properties (dates, references, geo points, …) as Java objects,
+// where reads return their strings; plain values arrive as JS primitives either way.
+function isTypedValue(value: unknown): boolean {
+  return value != null && !isScalar(value) && !Array.isArray(value);
+}
+
+function holdsTypedValue(value: unknown): boolean {
+  return Array.isArray(value) ? value.some(isTypedValue) : isTypedValue(value);
+}
+
+// Plans against a node as reads return it, so never re-plan in the editor: `apply` hands each
+// set over a typed value to `retype` instead.
 export function planUpdate(node: JsonObject, args: UpdateArgs): Parsed<UpdatePlan> {
   const changed: string[] = [];
   const previous: JsonObject = {};
@@ -650,9 +663,15 @@ export function planUpdate(node: JsonObject, args: UpdateArgs): Parsed<UpdatePla
     value: {
       changed,
       previous,
-      apply: <T extends JsonObject>(target: T): T => {
+      apply: <T extends JsonObject>(target: T, retype: Retype): T => {
         let next: JsonObject = target;
-        for (const [segments, value] of sets) next = setIn(next, segments, value);
+        for (const [segments, value] of sets) {
+          const stored = readObjectPath(next, segments);
+          const written = holdsTypedValue(stored)
+            ? retype(segments.join('.'), stored, value)
+            : value;
+          next = setIn(next, segments, written);
+        }
         for (const segments of unsets) next = unsetIn(next, segments);
         return next as T;
       },

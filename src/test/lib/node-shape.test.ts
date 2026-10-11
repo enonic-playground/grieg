@@ -58,6 +58,15 @@ function updateArgs(overrides: Partial<UpdateArgs> = {}): UpdateArgs {
   return { repo: 'scratch', branch: 'master', key: 'n1', set: {}, unset: [], ...overrides };
 }
 
+function plain(path: string): never {
+  throw new Error(`unexpected typed value at ${path}`);
+}
+
+// Stand-ins for the Java objects lib-node hands the editor: java.time values are typeof
+// 'function' under GraalJS, the XP value classes typeof 'object'.
+const instantLike = Object.assign(() => undefined, { toString: () => '2026-01-01T00:00:00Z' });
+const geoPointLike = new (class GeoPoint {})();
+
 describe('repository rules', () => {
   it.each(['system-repo', 'system.auditlog', 'system.scheduler'])(
     'should deny %s even when allowlisted',
@@ -359,7 +368,7 @@ describe('planUpdate', () => {
     );
     const original = node();
 
-    const applied = plan.apply(original);
+    const applied = plan.apply(original, plain);
 
     expect(plan.changed).toEqual(['address.city', 'meta.rating']);
     expect(plan.previous).toEqual({ 'address.city': 'Oslo', 'meta.rating': null });
@@ -375,7 +384,7 @@ describe('planUpdate', () => {
 
     expect(plan.changed).toEqual(['address.zip']);
     expect(plan.previous).toEqual({ 'address.zip': '0150' });
-    expect(plan.apply(node()).address).toEqual({ city: 'Oslo' });
+    expect(plan.apply(node(), plain).address).toEqual({ city: 'Oslo' });
   });
 
   it('should refuse to overwrite nested data or set inside a scalar', () => {
@@ -398,7 +407,7 @@ describe('planUpdate', () => {
       planUpdate(node({ meta: {} }), updateArgs({ set: { 'meta.constructor.label': 'x' } })),
     );
 
-    expect(plan.apply(node({ meta: {} })).meta).toEqual({ constructor: { label: 'x' } });
+    expect(plan.apply(node({ meta: {} }), plain).meta).toEqual({ constructor: { label: 'x' } });
   });
 
   it('should truncate an oversized previous value of a set', () => {
@@ -411,6 +420,49 @@ describe('planUpdate', () => {
   it('should keep the system properties of the node it applies to', () => {
     const plan = value(planUpdate(node(), updateArgs({ set: { title: 'Hi' } })));
 
-    expect(plan.apply(node())).toMatchObject({ _id: 'n1', _versionKey: 'v1', title: 'Hi' });
+    expect(plan.apply(node(), plain)).toMatchObject({ _id: 'n1', _versionKey: 'v1', title: 'Hi' });
+  });
+
+  it('should hand a set over a typed value to retype and store what it returns', () => {
+    const read = node({ meta: { at: '2026-01-01T00:00:00Z' } });
+    const raw = node({ meta: { at: instantLike }, where: geoPointLike });
+    const plan = value(
+      planUpdate(read, updateArgs({ set: { 'meta.at': '2026-02-01T00:00:00Z', title: 'Hi' } })),
+    );
+    const calls: unknown[][] = [];
+
+    const applied = plan.apply(raw, (...args) => {
+      calls.push(args);
+      return 'retyped';
+    });
+
+    expect(calls).toEqual([['meta.at', instantLike, '2026-02-01T00:00:00Z']]);
+    expect(applied).toMatchObject({ meta: { at: 'retyped' }, title: 'Hi', where: geoPointLike });
+  });
+
+  it('should hand a set over a list holding a typed value to retype', () => {
+    const plan = value(planUpdate(node({ tags: ['a', 'b'] }), updateArgs({ set: { tags: 'c' } })));
+
+    expect(() => plan.apply(node({ tags: ['a', geoPointLike] }), plain)).toThrow(
+      'unexpected typed value at tags',
+    );
+  });
+
+  it('should store sets over plain stored values without retyping them', () => {
+    const stored = { title: 'Hello', count: 2, ratio: 2.5, done: false, tags: ['a', 2] };
+    const plan = value(
+      planUpdate(
+        node(stored),
+        updateArgs({ set: { title: 'Hi', count: 3, ratio: 1.5, done: true, tags: ['b'] } }),
+      ),
+    );
+
+    expect(plan.apply(node(stored), plain)).toMatchObject({
+      title: 'Hi',
+      count: 3,
+      ratio: 1.5,
+      done: true,
+      tags: ['b'],
+    });
   });
 });
