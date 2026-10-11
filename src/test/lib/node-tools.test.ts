@@ -399,25 +399,109 @@ describe('node_update', () => {
     expect(message(outcome)).toContain('is at version v3');
   });
 
-  it('should apply the plan from the read without re-planning on the raw values the editor gets', () => {
-    // lib-node hands the editor Java objects for typed properties, which read as plain objects.
-    const instant = new (class Instant {})();
-    let written: JsonObject | undefined;
-    connection.get.mockReturnValue(stored({ publishedAt: '2026-01-01T00:00:00Z' }));
-    connection.update.mockImplementation(
-      ({ editor }) => (written = editor(stored({ publishedAt: instant, other: instant }))),
+  describe('typed properties', () => {
+    class Instant {
+      constructor(readonly text: string) {}
+      static parse(text: string): Instant {
+        if (!text.endsWith('Z')) throw new Error(`Text '${text}' could not be parsed`);
+        return new Instant(text);
+      }
+    }
+    // Each fake has only the static factory its Java class has, so a wrong factory name fails.
+    function fakeType(factory: 'parse' | 'from') {
+      class Fake {
+        constructor(readonly text: string) {}
+      }
+      return Object.assign(Fake, {
+        [factory]: (text: string) => {
+          if (text === 'invalid') throw new Error(`'${text}' is not valid`);
+          return new Fake(text);
+        },
+      });
+    }
+    const LocalDateTime = fakeType('parse');
+    const LocalDate = fakeType('parse');
+    const LocalTime = fakeType('parse');
+    const GeoPoint = fakeType('from');
+    const Reference = fakeType('from');
+    class Link {}
+    const classes: Record<string, unknown> = {
+      'java.time.Instant': Instant,
+      'java.time.LocalDateTime': LocalDateTime,
+      'java.time.LocalDate': LocalDate,
+      'java.time.LocalTime': LocalTime,
+      'com.enonic.xp.util.GeoPoint': GeoPoint,
+      'com.enonic.xp.util.Reference': Reference,
+    };
+    const published = new Instant('2026-01-01T00:00:00Z');
+
+    function update(raw: JsonObject, set: JsonObject) {
+      let written: JsonObject | undefined;
+      connection.get.mockReturnValue(stored({ publishedAt: '2026-01-01T00:00:00Z' }));
+      connection.update.mockImplementation(({ editor }) => (written = editor(stored(raw))));
+      const outcome = tool('node_update').handler({ repo: 'scratch', key: 'n1', set });
+      return { outcome, written };
+    }
+
+    beforeEach(() => {
+      vi.stubGlobal('Java', { type: (name: string) => classes[name] ?? class {} });
+    });
+
+    it('should store a set over a typed value as that type, leaving other typed values alone', () => {
+      const { outcome, written } = update(
+        { publishedAt: published, other: published },
+        { publishedAt: '2026-02-01T00:00:00Z' },
+      );
+
+      expect(written?.publishedAt).toBeInstanceOf(Instant);
+      expect(written?.publishedAt).toStrictEqual(new Instant('2026-02-01T00:00:00Z'));
+      expect(written?.other).toBe(published);
+      expect(value(outcome).previous).toEqual({ publishedAt: '2026-01-01T00:00:00Z' });
+    });
+
+    it.each([
+      ['LocalDateTime', LocalDateTime, '2026-02-01T12:00:00'],
+      ['LocalDate', LocalDate, '2026-02-01'],
+      ['LocalTime', LocalTime, '12:30:00'],
+      ['GeoPoint', GeoPoint, '59.91,10.75'],
+      ['Reference', Reference, 'my-node-id'],
+    ])(
+      'should store a set over a %s as that type, and refuse one it cannot parse',
+      (name, Type, text) => {
+        const { written } = update({ publishedAt: new Type('old') }, { publishedAt: text });
+        const refused = update({ publishedAt: new Type('old') }, { publishedAt: 'invalid' });
+
+        expect(written?.publishedAt).toStrictEqual(new Type(text));
+        expect(message(refused.outcome)).toContain(
+          `\`publishedAt\` is stored as ${name}, and \`invalid\` is not a valid one`,
+        );
+      },
     );
 
-    const result = value(
-      tool('node_update').handler({
-        repo: 'scratch',
-        key: 'n1',
-        set: { publishedAt: '2026-02-01T00:00:00Z' },
-      }),
-    );
+    it('should refuse a string the stored type cannot parse', () => {
+      const { outcome } = update({ publishedAt: published }, { publishedAt: 'tomorrow' });
 
-    expect(written).toMatchObject({ publishedAt: '2026-02-01T00:00:00Z', other: instant });
-    expect(result.previous).toEqual({ publishedAt: '2026-01-01T00:00:00Z' });
+      expect(message(outcome)).toContain(
+        '`publishedAt` is stored as Instant, and `tomorrow` is not a valid one',
+      );
+      expect(message(outcome)).toContain("Text 'tomorrow' could not be parsed");
+      expect(message(outcome)).toContain('Nothing was written.');
+    });
+
+    it('should refuse a non-string value over a typed one', () => {
+      const { outcome } = update({ publishedAt: published }, { publishedAt: 5 });
+
+      expect(message(outcome)).toContain('set it to a string such as `2026-01-01T00:00:00Z`');
+    });
+
+    it('should refuse a typed value it cannot rebuild, and several typed values in one property', () => {
+      expect(message(update({ publishedAt: new Link() }, { publishedAt: 'x' }).outcome)).toContain(
+        'cannot replace without changing its type',
+      );
+      expect(
+        message(update({ publishedAt: [published, published] }, { publishedAt: 'x' }).outcome),
+      ).toContain('cannot replace without changing its type');
+    });
   });
 
   it('should not write when nothing differs', () => {

@@ -85,6 +85,8 @@ The endpoint is `http://<host>:8080/api/com.enonic.app.grieg:mcp`, a stateless M
 | `node_create`    | Create a node under a parent; permissions are inherited and cannot be set                   |
 | `node_update`    | `set` and `unset` dot paths on a node, with `expectedVersionKey` conflict checking          |
 
+`node_update` keeps a property's type: a `set` on a date, time, geo point or reference takes the string `node_get` shows for it and stores it as that type again. A `set` over a link, a binary reference or a property holding several typed values is refused, since a string would replace its type. Xml properties read as plain strings, so a `set` on one stores a String.
+
 The node tools run as `mcp.user` too, so XP's node permissions decide what they can read and write. `system-repo` and `system.*` repositories are never available. `com.enonic.cms.*` repositories are read-only through `node_*`, since a lib-node write would bypass content validation, the workflow reset and project roles; content writes go through `content_update`. Branches default to `draft` for content repositories and `master` elsewhere. `expectedVersionKey` is checked inside lib-node's update editor, which has no lock: it catches a write that landed since your read, but not one landing during the update itself.
 
 Summaries carry an `editUrl` into Content Studio. On the `draft` branch, edits need publishing in Content Studio to go live, and each edit resets the item's workflow state to in-progress.
