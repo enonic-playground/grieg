@@ -5,14 +5,12 @@ import { list as listRepos } from '/lib/xp/repo';
 import type { ToolsConfig } from './config';
 import type { Tool, ToolOutcome } from './mcp';
 
-import { MAX_COUNT, SUBTREE_BUDGET, type Parsed } from './content-shape';
+import { MAX_COUNT } from './content-shape';
 import {
   defaultBranch,
   limitAggregations,
   limitSubtree,
   MAX_BUCKETS,
-  MAX_FIELDS,
-  nextCursor,
   NODE_SUBTREES,
   PAGE_BUDGET,
   parseCreateArgs,
@@ -20,7 +18,6 @@ import {
   parseQueryArgs,
   parseUpdateArgs,
   planUpdate,
-  projectFields,
   repoAccess,
   toNodeSummary,
   writeRefusal,
@@ -28,6 +25,7 @@ import {
   type Target,
 } from './node-shape';
 import { asConfiguredUser } from './run-as';
+import { MAX_FIELDS, nextCursor, projectFields, SUBTREE_BUDGET, type Parsed } from './shape';
 
 // lib-repo lists repositories only for administrators; what the user may read is probed after.
 const ADMIN_PRINCIPAL = 'role:system.admin';

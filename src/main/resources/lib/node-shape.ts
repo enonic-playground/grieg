@@ -1,22 +1,31 @@
-// Pure shaping for the node tools: repository rules, argument parsing, cursors, projection,
-// budgets and the update plan. Nothing here touches XP, so it runs under Vitest as-is.
+// Pure shaping for the node tools: repository rules, argument parsing, budgets and the
+// update plan. Nothing here touches XP, so it runs under Vitest as-is.
 
 import {
   DEFAULT_COUNT,
-  isScalar,
   MAX_COUNT,
   optionalInteger,
   optionalString,
-  SUBTREE_BUDGET,
   unknownKeys,
   type DataValue,
-  type Parsed,
 } from './content-shape';
+import {
+  decodeCursor,
+  isDotPath,
+  isObject,
+  isScalar,
+  MAX_FIELDS,
+  parseFields,
+  parsePaths,
+  queryFingerprint,
+  RESULT_WINDOW,
+  SUBTREE_BUDGET,
+  truncation,
+  type Parsed,
+  type Truncated,
+} from './shape';
 
 export const MAX_BUCKETS = 50;
-export const MAX_FIELDS = 50;
-// Elasticsearch's default `index.max_result_window`: XP refuses `start + count` beyond it.
-export const RESULT_WINDOW = 10_000;
 // Shared by the projected fields of every hit on one `node_query` page.
 export const PAGE_BUDGET = 4 * SUBTREE_BUDGET;
 
@@ -77,16 +86,8 @@ export type UpdatePlan = {
   apply: <T extends JsonObject>(node: T, retype: Retype) => T;
 };
 
-export type Truncated = { truncated: true; size: number; message: string };
-
-export type Budget = { remaining: number };
-
 function fail<T>(message: string): Parsed<T> {
   return { ok: false, message };
-}
-
-function isObject(value: unknown): value is JsonObject {
-  return typeof value === 'object' && value != null && !Array.isArray(value);
 }
 
 //
@@ -145,25 +146,6 @@ function parseTarget(args: JsonObject): Parsed<Target> {
   };
 }
 
-function isDotPath(path: string): boolean {
-  return path.split('.').every((segment) => segment !== '');
-}
-
-function parsePaths(value: unknown, key: string, max: number): Parsed<string[] | undefined> {
-  if (value == null) return { ok: true, value: undefined };
-  if (!Array.isArray(value) || !value.every((item) => typeof item === 'string')) {
-    return fail(`\`${key}\` must be an array of dot paths, e.g. ["title", "address.city"].`);
-  }
-  if (value.length > max) return fail(`\`${key}\` takes at most ${max} paths.`);
-  const invalid = value.find((path) => !isDotPath(path));
-  if (invalid != null) return fail(`\`${key}\` has an invalid dot path: \`${invalid}\`.`);
-  return { ok: true, value: value.length === 0 ? undefined : value };
-}
-
-function parseFields(args: JsonObject): Parsed<string[] | undefined> {
-  return parsePaths(args.fields, 'fields', MAX_FIELDS);
-}
-
 function isObjectOrObjects(value: unknown): value is JsonObject | JsonObject[] {
   return isObject(value) || (Array.isArray(value) && value.every(isObject));
 }
@@ -194,45 +176,6 @@ export function capAggregations(aggregations: JsonObject): JsonObject {
     capped[name] = next;
   }
   return capped;
-}
-
-// Key order is normalized so a client that re-serializes the same query keeps its cursor.
-function canonical(value: unknown): string {
-  if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`;
-  if (isObject(value)) {
-    const keys = Object.keys(value).toSorted();
-    return `{${keys.map((key) => `${JSON.stringify(key)}:${canonical(value[key])}`).join(',')}}`;
-  }
-  return JSON.stringify(value ?? null);
-}
-
-function fnv1a(text: string): string {
-  let hash = 0x81_1c_9d_c5;
-  for (let i = 0; i < text.length; i++) {
-    hash ^= text.charCodeAt(i);
-    hash = Math.imul(hash, 0x01_00_01_93) >>> 0;
-  }
-  return hash.toString(16).padStart(8, '0');
-}
-
-export function queryFingerprint(parts: unknown[]): string {
-  return fnv1a(canonical(parts));
-}
-
-export function encodeCursor(start: number, fingerprint: string): string {
-  return `${start.toString(36)}.${fingerprint}`;
-}
-
-export function decodeCursor(cursor: string, fingerprint: string): Parsed<number> {
-  const match = /^([\da-z]+)\.([\da-f]{8})$/.exec(cursor);
-  if (match == null) return fail('`cursor` is not a cursor this server issued.');
-  if (match[2] !== fingerprint) {
-    return fail(
-      '`cursor` belongs to a different query. Repeat the query it came from unchanged, or drop the cursor to start over.',
-    );
-  }
-  const start = Number.parseInt(match[1], 36);
-  return start < RESULT_WINDOW ? { ok: true, value: start } : fail('`cursor` is out of range.');
 }
 
 export function parseQueryArgs(args: JsonObject): Parsed<QueryArgs> {
@@ -303,17 +246,6 @@ export function parseQueryArgs(args: JsonObject): Parsed<QueryArgs> {
       fingerprint,
     },
   };
-}
-
-export function nextCursor(
-  { start, fingerprint }: Pick<QueryArgs, 'start' | 'fingerprint'>,
-  returned: number,
-  total: number,
-): string | undefined {
-  const next = start + returned;
-  return returned > 0 && next < total && next < RESULT_WINDOW
-    ? encodeCursor(next, fingerprint)
-    : undefined;
 }
 
 function parseKey(args: JsonObject): Parsed<string> {
@@ -479,20 +411,6 @@ export function parseUpdateArgs(args: JsonObject): Parsed<UpdateArgs> {
 // * Projection and Budgets
 //
 
-export function readPath(node: unknown, path: string): unknown {
-  let current = node;
-  for (const segment of path.split('.')) {
-    if (Array.isArray(current) && /^\d+$/.test(segment)) {
-      current = current[Number(segment)];
-    } else if (isObject(current) && Object.hasOwn(current, segment)) {
-      current = current[segment];
-    } else {
-      return undefined;
-    }
-  }
-  return current;
-}
-
 export function toNodeSummary(node: JsonObject): NodeSummary {
   const summary: JsonObject = {};
   for (const key of SUMMARY_KEYS) summary[key] = node[key];
@@ -501,25 +419,6 @@ export function toNodeSummary(node: JsonObject): NodeSummary {
 
 export function userData(node: JsonObject): JsonObject {
   return Object.fromEntries(Object.entries(node).filter(([key]) => !key.startsWith('_')));
-}
-
-function truncation(path: string, value: unknown, size: number, budget: number): Truncated {
-  const children =
-    typeof value === 'object' && value != null
-      ? Object.keys(value)
-          .slice(0, 10)
-          .map((key) => `\`${path === '' ? key : `${path}.${key}`}\``)
-      : [];
-  const name = path === '' ? 'data' : path;
-  const narrow =
-    children.length > 0
-      ? `Ask for part of it with \`fields\`, e.g. ${children.join(', ')}.`
-      : 'It is a single value and cannot be narrowed.';
-  return {
-    truncated: true,
-    size,
-    message: `\`${name}\` is ${size} characters, over the ${budget} left in the ${SUBTREE_BUDGET}-per-subtree budget. ${narrow}`,
-  };
 }
 
 function limited(path: string, value: unknown): unknown {
@@ -540,22 +439,6 @@ export function limitAggregations(aggregations: unknown): unknown {
 export function limitSubtree(node: JsonObject, name: NodeSubtree): unknown {
   const path = SUBTREE_PATHS[name];
   return limited(path, name === 'data' ? userData(node) : (node[path] ?? null));
-}
-
-export function projectFields(node: JsonObject, fields: string[], budget: Budget): JsonObject {
-  const projected: JsonObject = {};
-  for (const path of fields) {
-    const value = readPath(node, path);
-    if (value === undefined) continue;
-    const size = JSON.stringify(value).length;
-    if (size <= budget.remaining) {
-      projected[path] = value;
-      budget.remaining -= size;
-    } else {
-      projected[path] = truncation(path, value, size, budget.remaining);
-    }
-  }
-  return projected;
 }
 
 //

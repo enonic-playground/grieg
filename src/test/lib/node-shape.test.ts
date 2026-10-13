@@ -2,26 +2,28 @@ import { describe, expect, it } from 'vitest';
 
 import type { UpdateArgs } from '../../main/resources/lib/node-shape';
 
-import { SUBTREE_BUDGET } from '../../main/resources/lib/content-shape';
 import {
   capAggregations,
-  decodeCursor,
   defaultBranch,
-  encodeCursor,
   limitAggregations,
   limitSubtree,
-  nextCursor,
   parseCreateArgs,
   parseGetArgs,
   parseQueryArgs,
   parseUpdateArgs,
   planUpdate,
-  projectFields,
-  readPath,
   repoAccess,
-  RESULT_WINDOW,
   toNodeSummary,
 } from '../../main/resources/lib/node-shape';
+import {
+  decodeCursor,
+  encodeCursor,
+  nextCursor,
+  projectFields,
+  readPath,
+  RESULT_WINDOW,
+  SUBTREE_BUDGET,
+} from '../../main/resources/lib/shape';
 
 type JsonObject = Record<string, unknown>;
 
@@ -227,6 +229,22 @@ describe('projection', () => {
       _ts: '2026-01-01T00:00:00Z',
       _versionKey: 'v1',
     });
+  });
+
+  it('should project a repeated path once, charging the budget once', () => {
+    const budget = { remaining: 10 };
+
+    expect(projectFields(node(), ['title', 'title'], budget)).toEqual({ title: 'Hello' });
+    expect(budget.remaining).toBe(3);
+  });
+
+  it('should return a __proto__ property as a field', () => {
+    const withProto = JSON.parse('{"__proto__": {"x": 1}}') as Record<string, unknown>;
+
+    const projected = projectFields(withProto, ['__proto__'], { remaining: 100 });
+
+    expect(Object.hasOwn(projected, '__proto__')).toBe(true);
+    expect(JSON.stringify(projected)).toBe('{"__proto__":{"x":1}}');
   });
 
   it('should spend one budget across hits and mark what no longer fits', () => {

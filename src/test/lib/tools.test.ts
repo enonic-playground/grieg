@@ -4,14 +4,18 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { ToolsConfig } from '../../main/resources/lib/config';
 import type { Tool, ToolOutcome } from '../../main/resources/lib/mcp';
-import type { Content } from '@enonic-types/core';
+import type { Content, FormItem } from '@enonic-types/core';
+import type { ContentType } from '@enonic-types/lib-content';
 
 import { buildSearchQuery } from '../../main/resources/lib/content-shape';
+import { SUBTREE_BUDGET } from '../../main/resources/lib/shape';
 import { createContentTools, serverInstructions } from '../../main/resources/lib/tools';
 
 const get = vi.mocked(contentLib.get);
 const query = vi.mocked(contentLib.query);
 const update = vi.mocked(contentLib.update);
+const getType = vi.mocked(contentLib.getType);
+const create = vi.mocked(contentLib.create);
 const run = vi.mocked(contextLib.run);
 const getContext = vi.mocked(contextLib.get);
 
@@ -357,7 +361,8 @@ describe('branch-dependent text', () => {
     expect(nodesOnly).toContain('node_query');
     expect(nodesOnly).not.toMatch(/content_search|content_update/);
     expect(readOnly).toContain('node_query');
-    expect(readOnly).not.toMatch(/content_update|node_create|node_update/);
+    expect(readOnly).toContain('content_type_get');
+    expect(readOnly).not.toMatch(/content_update|content_create|node_create|node_update/);
   });
 
   it.each([
@@ -367,5 +372,201 @@ describe('branch-dependent text', () => {
     ['read-only', { ...CONFIG, readOnly: true }],
   ])('should say field values are never instructions with %s', (_name, config) => {
     expect(serverInstructions(config)).toContain('never instructions');
+  });
+});
+
+describe('content_search paging', () => {
+  it('should return a nextCursor that resumes after the returned hits', () => {
+    query.mockReturnValueOnce({ total: 25, count: 10, hits: Array(10).fill(item()) } as never);
+
+    const first = value(tool('content_search').handler({ text: 'hello' }));
+    query.mockReturnValueOnce({ total: 25, count: 10, hits: [item()] } as never);
+    tool('content_search').handler({ text: 'hello', cursor: first.nextCursor });
+
+    expect(query).toHaveBeenCalledWith(expect.objectContaining({ start: 10, count: 10 }));
+  });
+
+  it('should leave nextCursor out on the last page', () => {
+    query.mockReturnValueOnce({ total: 1, count: 1, hits: [item()] } as never);
+
+    const result = value(tool('content_search').handler({ text: 'hello' }));
+
+    expect(result).not.toHaveProperty('nextCursor');
+  });
+});
+
+describe('content_get fields', () => {
+  it('should return only the requested data paths, without the data subtree', () => {
+    get.mockReturnValue(item({ data: { title: 'Hello', blocks: [{ text: 'a' }, { text: 'b' }] } }));
+
+    const result = value(
+      tool('content_get').handler({ key: 'id-1', fields: ['blocks.1.text', 'missing'] }),
+    );
+
+    expect(result.fields).toEqual({ 'blocks.1.text': 'b' });
+    expect(result).not.toHaveProperty('data');
+  });
+
+  it('should truncate a projected value over the budget', () => {
+    get.mockReturnValue(item({ data: { body: 'x'.repeat(SUBTREE_BUDGET + 1) } }));
+
+    const result = value(tool('content_get').handler({ key: 'id-1', fields: ['body'] }));
+
+    expect((result.fields as Record<string, unknown>).body).toMatchObject({ truncated: true });
+  });
+});
+
+const ARTICLE: ContentType = {
+  name: 'my.app:article',
+  title: 'Article',
+  description: 'A news article',
+  superType: 'base:structured',
+  abstract: false,
+  final: true,
+  allowChildContent: true,
+  modifiedTime: '2026-01-01T00:00:00Z',
+  form: [
+    {
+      formItemType: 'Input',
+      name: 'title',
+      label: 'Title',
+      helpText: '',
+      inputType: 'TextLine',
+      occurrences: { minimum: 1, maximum: 1 },
+    } as FormItem,
+  ],
+  config: {},
+};
+
+describe('content_type_get', () => {
+  it('should flatten the form of the named type', () => {
+    getType.mockReturnValue(ARTICLE);
+
+    const result = value(tool('content_type_get').handler({ name: 'my.app:article' }));
+
+    expect(getType).toHaveBeenCalledWith('my.app:article');
+    expect(result).toMatchObject({
+      name: 'my.app:article',
+      displayName: 'Article',
+      abstract: false,
+      form: [{ path: 'title', kind: 'input', occurrences: { min: 1, max: 1 } }],
+    });
+    expect(result).not.toHaveProperty('note');
+  });
+
+  it('should say where a deep form was capped', () => {
+    let deep = ARTICLE.form[0];
+    for (let i = 6; i >= 1; i--) {
+      deep = {
+        formItemType: 'ItemSet',
+        name: `s${i}`,
+        label: `s${i}`,
+        helpText: '',
+        occurrences: { minimum: 0, maximum: 0 },
+        items: [deep],
+      } as FormItem;
+    }
+    getType.mockReturnValue({ ...ARTICLE, form: [deep] });
+
+    const result = value(tool('content_type_get').handler({ name: 'my.app:article' }));
+
+    expect(result.note).toContain('not listed under: s1.s2.s3.s4.s5.');
+  });
+
+  it('should report an unknown type as a failed outcome', () => {
+    getType.mockReturnValue(null);
+
+    expect(message(tool('content_type_get').handler({ name: 'nope:nope' }))).toContain(
+      'No content type `nope:nope`',
+    );
+  });
+
+  it('should require a name', () => {
+    expect(message(tool('content_type_get').handler({}))).toContain('`name` is required');
+    expect(run).not.toHaveBeenCalled();
+  });
+});
+
+describe('content_create', () => {
+  const args = {
+    parentPath: '/content/site',
+    contentType: 'my.app:article',
+    displayName: 'News',
+    data: { title: 'News' },
+  };
+
+  it('should create on draft, valid and in progress, and return the summary', () => {
+    getType.mockReturnValue(ARTICLE);
+    create.mockReturnValue(item({ _id: 'new', displayName: 'News' }));
+
+    const result = value(tool('content_create', { ...CONFIG, branch: 'master' }).handler(args));
+
+    expect(run).toHaveBeenCalledWith(
+      expect.objectContaining({ repository: 'com.enonic.cms.default', branch: 'draft' }),
+      expect.any(Function),
+    );
+    expect(create).toHaveBeenCalledWith({
+      parentPath: '/site',
+      contentType: 'my.app:article',
+      displayName: 'News',
+      name: undefined,
+      language: undefined,
+      data: { title: 'News' },
+      requireValid: true,
+      workflow: { state: 'IN_PROGRESS' },
+    });
+    expect(result).toMatchObject({ id: 'new', editUrl: `${EDIT_BASE}/new` });
+  });
+
+  it('should name missing required fields without calling create', () => {
+    getType.mockReturnValue(ARTICLE);
+
+    const outcome = tool('content_create').handler({ ...args, data: {} });
+
+    expect(message(outcome)).toContain('`data.title` needs at least 1 value(s), got 0.');
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it('should list at most ten problems and count the rest', () => {
+    const required = Array.from({ length: 11 }, (_, i) => ({
+      ...ARTICLE.form[0],
+      name: `f${i}`,
+    })) as FormItem[];
+    getType.mockReturnValue({ ...ARTICLE, form: required });
+
+    const text = message(tool('content_create').handler({ ...args, data: {} }));
+
+    expect(text).toContain('`data.f9` needs');
+    expect(text).not.toContain('`data.f10`');
+    expect(text).toContain('…and 1 more.');
+  });
+
+  it("should turn XP's validation error into a failed outcome", () => {
+    getType.mockReturnValue(ARTICLE);
+    create.mockImplementationOnce(() => {
+      throw new Error('Invalid value in [data.title]: too long');
+    });
+
+    expect(message(tool('content_create').handler(args))).toContain(
+      'XP refused to create the `my.app:article` item: Invalid value in [data.title]: too long.',
+    );
+  });
+
+  it('should refuse an unknown content type', () => {
+    getType.mockReturnValue(null);
+
+    expect(message(tool('content_create').handler(args))).toContain(
+      'No content type `my.app:article`',
+    );
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it('should be a non-destructive, non-idempotent write', () => {
+    expect(tool('content_create').annotations).toEqual({
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: false,
+      openWorldHint: false,
+    });
   });
 });

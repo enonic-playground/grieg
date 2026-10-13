@@ -54,7 +54,7 @@ mcp.allowedHosts =
 # names are ignored with a log warning; a blank value serves no tools at all.
 mcp.toolsets = content,nodes
 
-# `true` removes content_update, node_create and node_update from `tools/list`, and refuses
+# `true` removes content_update, content_create, node_create and node_update from `tools/list`, and refuses
 # them if called anyway.
 mcp.readOnly = false
 
@@ -74,20 +74,24 @@ XP picks up changes to this file without a restart.
 
 The endpoint is `http://<host>:8080/api/com.enonic.app.grieg:mcp`, a stateless MCP server over HTTP POST. It speaks protocol `2026-07-28` (`server/discover` plus per-request `_meta`) and the legacy `initialize` handshake (`2025-11-25`, `2025-06-18`, `2025-03-26`) from the same URL.
 
-| Tool             | Does                                                                                        |
-| ---------------- | ------------------------------------------------------------------------------------------- |
-| `content_search` | Full-text search by `text`, or list the children of `path`; returns compact summaries       |
-| `content_get`    | One item by id or path, with `data` (default), `x`, `page` or `attachments` on request      |
-| `content_update` | Change `displayName`, `language` or top-level scalar `data` fields, with conflict checking  |
-| `node_repos`     | Repositories and branches `mcp.user` can read, with whether the node tools may write them   |
-| `node_query`     | lib-node query (DSL or NoQL) with filters, sort, capped aggregations, `fields` and a cursor |
-| `node_get`       | One node by id or path, with `data` (default), `permissions`, `indexConfig` or `fields`     |
-| `node_create`    | Create a node under a parent; permissions are inherited and cannot be set                   |
-| `node_update`    | `set` and `unset` dot paths on a node, with `expectedVersionKey` conflict checking          |
+| Tool               | Does                                                                                        |
+| ------------------ | ------------------------------------------------------------------------------------------- |
+| `content_search`   | Full-text search by `text`, or list the children of `path`; compact summaries and a cursor  |
+| `content_get`      | One item by id or path, with `data` (default), `x`, `page`, `attachments` or `fields`       |
+| `content_type_get` | A content type's fields as dot paths, with input type, occurrences and config, depth-capped |
+| `content_update`   | Change `displayName`, `language` or top-level scalar `data` fields, with conflict checking  |
+| `content_create`   | Create an item on draft, in progress, validated against its content type                    |
+| `node_repos`       | Repositories and branches `mcp.user` can read, with whether the node tools may write them   |
+| `node_query`       | lib-node query (DSL or NoQL) with filters, sort, capped aggregations, `fields` and a cursor |
+| `node_get`         | One node by id or path, with `data` (default), `permissions`, `indexConfig` or `fields`     |
+| `node_create`      | Create a node under a parent; permissions are inherited and cannot be set                   |
+| `node_update`      | `set` and `unset` dot paths on a node, with `expectedVersionKey` conflict checking          |
 
 `node_update` keeps a property's type: a `set` on a date, time, geo point or reference takes the string `node_get` shows for it and stores it as that type again. A `set` over a link, a binary reference or a property holding several typed values is refused, since a string would replace its type. Xml properties read as plain strings, so a `set` on one stores a String.
 
 The node tools run as `mcp.user` too, so XP's node permissions decide what they can read and write. `system-repo` and `system.*` repositories are never available. `com.enonic.cms.*` repositories are read-only through `node_*`, since a lib-node write would bypass content validation, the workflow reset and project roles; content writes go through `content_update`. Branches default to `draft` for content repositories and `master` elsewhere. `expectedVersionKey` is checked inside lib-node's update editor, which has no lock: it catches a write that landed since your read, but not one landing during the update itself.
+
+`content_create` always writes to the `draft` branch, whatever `mcp.branch` says, with `requireValid` on and the workflow state set to in-progress, so nothing an agent creates goes live until someone publishes it. XP reports only the first validation error, and none for a missing required field, so the tool first checks the data against the content type's occurrence rules and names the offending paths, the first ten per refusal plus a count of the rest. `content_type_get` expands nested item sets and option sets four levels deep; a set on the fifth level is listed, marked `capped`, without its fields.
 
 Summaries carry an `editUrl` into Content Studio. On the `draft` branch, edits need publishing in Content Studio to go live, and each edit resets the item's workflow state to in-progress.
 

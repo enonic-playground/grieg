@@ -1,21 +1,25 @@
 import { describe, expect, it } from 'vitest';
 
-import type { Content } from '@enonic-types/core';
+import type { Content, FormItem } from '@enonic-types/core';
 
 import {
   buildSearchQuery,
+  checkOccurrences,
+  createRefusal,
+  flattenForm,
   limitSubtree,
   MAX_COUNT,
   normalizeKey,
+  parseCreateArgs,
   parseGetArgs,
   parseSearchArgs,
   parseUpdateArgs,
   pickSubtrees,
   planUpdate,
-  SUBTREE_BUDGET,
   toNodePath,
   toSummary,
 } from '../../main/resources/lib/content-shape';
+import { encodeCursor, nextCursor, SUBTREE_BUDGET } from '../../main/resources/lib/shape';
 
 function content(overrides: Partial<Content> = {}): Content {
   return {
@@ -61,7 +65,10 @@ describe('toNodePath', () => {
 
 describe('parseSearchArgs', () => {
   it('should apply defaults', () => {
-    expect(parseSearchArgs({})).toEqual({ ok: true, value: { count: 10, start: 0 } });
+    expect(parseSearchArgs({})).toEqual({
+      ok: true,
+      value: { count: 10, start: 0, fingerprint: expect.stringMatching(/^[\da-f]{8}$/) },
+    });
   });
 
   it('should accept the count bounds', () => {
@@ -75,7 +82,10 @@ describe('parseSearchArgs', () => {
   it('should normalize the path and drop blank strings', () => {
     const parsed = parseSearchArgs({ path: '/content/site', text: '  ' });
 
-    expect(parsed).toEqual({ ok: true, value: { path: '/site', count: 10, start: 0 } });
+    expect(parsed).toEqual({
+      ok: true,
+      value: { path: '/site', count: 10, start: 0, fingerprint: expect.any(String) },
+    });
   });
 
   it.each([
@@ -85,7 +95,9 @@ describe('parseSearchArgs', () => {
     [{ query: 'x' }, 'Unknown argument(s): query'],
     [{ count: 0 }, '`count` must be between 1 and 50'],
     [{ count: 51 }, '`count` must be between 1 and 50'],
-    [{ start: -1 }, '`start` must be 0 or greater'],
+    [{ start: -1 }, '`start` must be between 0 and 9999'],
+    [{ start: 10_000 }, '`start` must be between 0 and 9999'],
+    [{ start: 5, cursor: 'x' }, 'either `start` or `cursor`'],
   ])('should reject %j', (args, message) => {
     const parsed = parseSearchArgs(args);
 
@@ -297,5 +309,323 @@ describe('planUpdate', () => {
       ...current,
       data: { title: 'Hi', other: 'kept', items: { nested: true } },
     });
+  });
+});
+
+describe('content_search cursors', () => {
+  it('should resume from a cursor issued for the same arguments', () => {
+    const first = parseSearchArgs({ text: 'hello', path: '/site' });
+    if (!first.ok) throw new Error(first.message);
+    const cursor = nextCursor(first.value, 10, 25);
+
+    const second = parseSearchArgs({ text: 'hello', path: '/content/site', cursor, count: 5 });
+
+    expect(second).toMatchObject({ ok: true, value: { start: 10, count: 5 } });
+  });
+
+  it('should refuse a cursor issued for different arguments', () => {
+    const first = parseSearchArgs({ text: 'hello' });
+    if (!first.ok) throw new Error(first.message);
+
+    const other = parseSearchArgs({
+      text: 'other',
+      cursor: encodeCursor(10, first.value.fingerprint),
+    });
+
+    expect(other).toMatchObject({ ok: false, message: expect.stringContaining('different query') });
+  });
+
+  it('should shrink the page so it never crosses the result window', () => {
+    const first = parseSearchArgs({});
+    if (!first.ok) throw new Error(first.message);
+
+    const last = parseSearchArgs({ cursor: encodeCursor(9995, first.value.fingerprint) });
+
+    expect(last).toMatchObject({ ok: true, value: { start: 9995, count: 5 } });
+  });
+});
+
+describe('parseGetArgs fields', () => {
+  it('should drop the data default when fields are given', () => {
+    expect(parseGetArgs({ key: 'id-1', fields: ['title', 'blocks.0.text'] })).toEqual({
+      ok: true,
+      value: { key: 'id-1', fields: ['title', 'blocks.0.text'], include: [] },
+    });
+  });
+
+  it('should keep an explicit include next to fields', () => {
+    expect(parseGetArgs({ key: 'id-1', fields: ['title'], include: ['x'] })).toMatchObject({
+      ok: true,
+      value: { include: ['x'] },
+    });
+  });
+
+  it.each([
+    [{ key: 'id-1', fields: 'title' }, 'must be an array of dot paths'],
+    [{ key: 'id-1', fields: ['a..b'] }, 'invalid dot path'],
+  ])('should reject %j', (args, message) => {
+    const parsed = parseGetArgs(args);
+
+    expect(parsed.ok ? '' : parsed.message).toContain(message);
+  });
+});
+
+describe('parseCreateArgs', () => {
+  it('should normalize the parent path and default data to an empty object', () => {
+    expect(
+      parseCreateArgs({
+        parentPath: '/content/site',
+        contentType: 'base:folder',
+        displayName: 'News',
+      }),
+    ).toEqual({
+      ok: true,
+      value: {
+        parentPath: '/site',
+        contentType: 'base:folder',
+        displayName: 'News',
+        name: undefined,
+        language: undefined,
+        data: {},
+      },
+    });
+  });
+
+  it.each([
+    [{ contentType: 'base:folder', displayName: 'A' }, '`parentPath` is required'],
+    [{ parentPath: 'site', contentType: 'base:folder', displayName: 'A' }, 'must start with `/`'],
+    [{ parentPath: '/', displayName: 'A' }, '`contentType` is required'],
+    [{ parentPath: '/', contentType: 'base:folder' }, '`displayName` is required'],
+    [
+      { parentPath: '/', contentType: 'base:folder', displayName: 'A', name: 'a/b' },
+      'must not contain `/`',
+    ],
+    [
+      { parentPath: '/', contentType: 'a:b', displayName: 'A', data: [] },
+      '`data` must be an object',
+    ],
+    [
+      { parentPath: '/', contentType: 'a:b', displayName: 'A', data: null },
+      '`data` must be an object',
+    ],
+    [
+      { parentPath: '/', contentType: 'a:b', displayName: 'A', data: { set: { x: null } } },
+      '`data.set.x` must be',
+    ],
+    [{ parentPath: '/', contentType: 'a:b', displayName: 'A', valid: true }, 'Unknown argument'],
+  ])('should reject %j', (args, message) => {
+    const parsed = parseCreateArgs(args);
+
+    expect(parsed.ok ? '' : parsed.message).toContain(message);
+  });
+});
+
+function input(name: string, min = 0, max = 1, extra: Record<string, unknown> = {}): FormItem {
+  return {
+    formItemType: 'Input',
+    name,
+    label: name,
+    helpText: '',
+    inputType: 'TextLine',
+    occurrences: { minimum: min, maximum: max },
+    ...extra,
+  } as FormItem;
+}
+
+function itemSet(name: string, items: FormItem[], min = 0, max = 0): FormItem {
+  return {
+    formItemType: 'ItemSet',
+    name,
+    label: name,
+    helpText: '',
+    occurrences: { minimum: min, maximum: max },
+    items,
+  } as FormItem;
+}
+
+function optionSet(
+  name: string,
+  options: { name: string; items: FormItem[] }[],
+  selection = { minimum: 1, maximum: 1 },
+): FormItem {
+  return {
+    formItemType: 'OptionSet',
+    name,
+    label: name,
+    helpText: '',
+    occurrences: { minimum: 1, maximum: 1 },
+    selection,
+    options: options.map((option) => ({
+      ...option,
+      label: option.name,
+      helpText: '',
+      default: false,
+    })),
+  } as unknown as FormItem;
+}
+
+function layout(items: FormItem[]): FormItem {
+  return { formItemType: 'Layout', name: '', label: 'Group', items } as FormItem;
+}
+
+function nestedSets(depth: number): FormItem {
+  let item = input('leaf');
+  for (let i = depth; i >= 1; i--) item = itemSet(`s${i}`, [item]);
+  return item;
+}
+
+describe('flattenForm', () => {
+  it('should list inputs by data path, see through layouts and keep input config', () => {
+    const form = [
+      input('title', 1, 1),
+      layout([input('color', 0, 1, { inputType: 'ComboBox', options: [{ value: 'red' }] })]),
+    ];
+
+    expect(flattenForm(form)).toEqual({
+      fields: [
+        {
+          path: 'title',
+          kind: 'input',
+          label: 'title',
+          inputType: 'TextLine',
+          occurrences: { min: 1, max: 1 },
+        },
+        {
+          path: 'color',
+          kind: 'input',
+          label: 'color',
+          inputType: 'ComboBox',
+          occurrences: { min: 0, max: 1 },
+          config: { options: [{ value: 'red' }] },
+        },
+      ],
+      capped: [],
+    });
+  });
+
+  it('should nest item set and option set fields under their names', () => {
+    const form = [
+      itemSet('blocks', [input('text')]),
+      optionSet('media', [{ name: 'image', items: [input('caption')] }]),
+    ];
+
+    const paths = flattenForm(form).fields.map((field) => [field.path, field.kind]);
+
+    expect(paths).toEqual([
+      ['blocks', 'itemSet'],
+      ['blocks.text', 'input'],
+      ['media', 'optionSet'],
+      ['media.image', 'option'],
+      ['media.image.caption', 'input'],
+    ]);
+  });
+
+  it('should expand sets up to the depth cap and mark where it stopped', () => {
+    const { fields, capped } = flattenForm([nestedSets(3)], 2);
+
+    expect(fields.map((field) => field.path)).toEqual(['s1', 's1.s2', 's1.s2.s3']);
+    expect(fields.at(-1)).toMatchObject({ path: 's1.s2.s3', capped: true });
+    expect(capped).toEqual(['s1.s2.s3']);
+  });
+
+  it('should not cap a set exactly at the depth limit', () => {
+    const { fields, capped } = flattenForm([nestedSets(2)], 2);
+
+    expect(fields.map((field) => field.path)).toEqual(['s1', 's1.s2', 's1.s2.leaf']);
+    expect(capped).toEqual([]);
+  });
+});
+
+describe('checkOccurrences', () => {
+  it('should name missing required and surplus values by path', () => {
+    const form = [input('title', 1, 1), input('tags', 0, 2), layout([input('lead', 1, 1)])];
+
+    expect(checkOccurrences(form, { tags: ['a', 'b', 'c'] })).toEqual([
+      '`data.title` needs at least 1 value(s), got 0.',
+      '`data.tags` takes at most 2 value(s), got 3.',
+      '`data.lead` needs at least 1 value(s), got 0.',
+    ]);
+  });
+
+  it('should count empty strings but not nulls, as XP does', () => {
+    expect(checkOccurrences([input('title', 1, 1)], { title: [null, ''] })).toEqual([]);
+  });
+
+  it('should check inside each item set occurrence', () => {
+    const form = [itemSet('blocks', [input('text', 1, 1)])];
+
+    expect(checkOccurrences(form, { blocks: [{ text: 'a' }, {}] })).toEqual([
+      '`data.blocks.1.text` needs at least 1 value(s), got 0.',
+    ]);
+    expect(checkOccurrences(form, { blocks: {} })).toEqual([
+      '`data.blocks.text` needs at least 1 value(s), got 0.',
+    ]);
+  });
+
+  it('should skip a selected option without a data object, as XP does', () => {
+    const form = [optionSet('media', [{ name: 'image', items: [input('caption', 1, 1)] }])];
+
+    expect(checkOccurrences(form, { media: { _selected: ['image'] } })).toEqual([]);
+  });
+
+  it('should stop at the first option set occurrence with nothing selected, as XP does', () => {
+    const media = optionSet('media', [{ name: 'image', items: [input('caption', 1, 1)] }], {
+      minimum: 0,
+      maximum: 1,
+    });
+    const form = [{ ...media, occurrences: { minimum: 0, maximum: 0 } } as FormItem];
+
+    expect(
+      checkOccurrences(form, { media: [{ _selected: [] }, { _selected: ['image'], image: {} }] }),
+    ).toEqual([]);
+  });
+
+  it('should read a maximum of 0 as unlimited', () => {
+    const form = [
+      input('tags', 1, 0),
+      optionSet(
+        'media',
+        [
+          { name: 'image', items: [] },
+          { name: 'video', items: [] },
+        ],
+        {
+          minimum: 1,
+          maximum: 0,
+        },
+      ),
+    ];
+
+    expect(
+      checkOccurrences(form, { tags: ['a', 'b', 'c'], media: { _selected: ['image', 'video'] } }),
+    ).toEqual([]);
+  });
+
+  it('should check the option set selection and only the selected options', () => {
+    const form = [
+      optionSet('media', [
+        { name: 'image', items: [input('caption', 1, 1)] },
+        { name: 'video', items: [input('url', 1, 1)] },
+      ]),
+    ];
+
+    expect(checkOccurrences(form, { media: { _selected: 'image', image: {} } })).toEqual([
+      '`data.media.image.caption` needs at least 1 value(s), got 0.',
+    ]);
+    expect(checkOccurrences(form, { media: { _selected: [] } })).toEqual([
+      '`data.media._selected` must name 1 to 1 option(s), got 0.',
+    ]);
+  });
+});
+
+describe('createRefusal', () => {
+  it("should pass XP's message through", () => {
+    expect(createRefusal('my.app:article', 'Invalid value in [data.date]: bad')).toContain(
+      'refused to create the `my.app:article` item: Invalid value in [data.date]: bad.',
+    );
+  });
+
+  it.each([undefined, '', 'null'])('should explain a refusal without a message (%j)', (raw) => {
+    expect(createRefusal('a:b', raw)).toContain('not valid for the content type');
   });
 });
