@@ -95,6 +95,8 @@ The node tools run as `mcp.user` too, so XP's node permissions decide what they 
 
 Summaries carry an `editUrl` into Content Studio. On the `draft` branch, edits need publishing in Content Studio to go live, and each edit resets the item's workflow state to in-progress.
 
+On startup grieg creates the role `role:com.enonic.app.grieg.mcp`, whose members may hold a personal MCP key. Roles live in `system-repo`, so the role stays after the app is uninstalled; delete it in the Users app if it is no longer wanted.
+
 ### Claude Code
 
 ```bash
