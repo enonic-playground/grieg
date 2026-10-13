@@ -1,11 +1,13 @@
-// Who may reach the MCP endpoint. The API descriptor admits everyone, so these checks are the
-// whole gate.
+// Who may reach the MCP endpoint, and as whom the tools run. The API descriptor admits everyone,
+// so these checks are the whole gate.
 
 import type { McpConfig, ToolsConfig } from './config';
 
 import { safeEqual } from './mcp';
 
 const BEARER_PREFIX = 'Bearer ';
+// Bearers with this prefix are per-user keys and never fall back to the shared token.
+const KEY_PREFIX = 'grieg_';
 const TRUSTED_HOSTS = ['localhost', '127.0.0.1', '[::1]'];
 
 // No `URL` in XP's script engine, so the origin is split by hand.
@@ -18,7 +20,11 @@ export type AccessRequest = {
   cookieNames: string[];
   // From `originOf` over XP's request scheme, host and port, which apply `X-Forwarded-*`.
   origin: string;
+  // A miss carries the reason the endpoint logs.
+  resolveKey: (key: string) => KeyResolution;
 };
+
+export type KeyResolution = { login: string; idProvider: string } | { reason: string };
 
 export type Rejection =
   | { status: 401; reason: string }
@@ -117,20 +123,27 @@ export function checkAccess(request: AccessRequest, config: McpConfig): Access {
   const refused = checkCookies(request) ?? checkOrigin(request, config);
   if (refused != null) return refused;
 
-  const { token, user } = config;
-  if (token == null) {
-    return unauthorized('endpoint is disabled, set `mcp.token` in the app config');
-  }
-  if (user == null) {
-    return unauthorized('endpoint is disabled, set `mcp.user` in the app config');
-  }
-
   const header = request.header('Authorization');
   if (header == null || !header.startsWith(BEARER_PREFIX)) {
     return unauthorized('missing bearer token');
   }
-  if (!safeEqual(header.slice(BEARER_PREFIX.length), token)) {
+  const bearer = header.slice(BEARER_PREFIX.length);
+
+  if (bearer.startsWith(KEY_PREFIX)) {
+    const resolved = request.resolveKey(bearer);
+    if ('reason' in resolved) return unauthorized(resolved.reason);
+    const { login, idProvider } = resolved;
+    return { config: { ...config, user: login, idProvider, credential: 'key' } };
+  }
+
+  const { token, user } = config;
+  if (token == null || user == null) {
+    return unauthorized(
+      'bearer is not a grieg_ key, and shared-token mode is off (`mcp.token` and `mcp.user` unset)',
+    );
+  }
+  if (!safeEqual(bearer, token)) {
     return unauthorized('invalid bearer token');
   }
-  return { config: { ...config, user } };
+  return { config: { ...config, user, credential: 'token' } };
 }

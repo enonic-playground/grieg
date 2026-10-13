@@ -7,7 +7,8 @@ export type SystemInfo = {
   xpVersion: string;
   appName: string;
   appVersion: string;
-  mcpEnabled: boolean;
+  mcpKeys: boolean;
+  mcpSharedToken: boolean;
   mcpProject: string;
   mcpBranch: string;
 };

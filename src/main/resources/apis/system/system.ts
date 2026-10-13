@@ -9,7 +9,8 @@ type SystemInfo = {
   xpVersion: string;
   appName: string;
   appVersion: string;
-  mcpEnabled: boolean;
+  mcpKeys: boolean;
+  mcpSharedToken: boolean;
   mcpProject: string;
   mcpBranch: string;
 };
@@ -24,7 +25,8 @@ export function get(_req: Request): Response {
     xpVersion: getVersion(),
     appName: app.name,
     appVersion: app.version,
-    mcpEnabled: mcp.token != null && mcp.user != null,
+    mcpKeys: true,
+    mcpSharedToken: mcp.token != null && mcp.user != null,
     mcpProject: mcp.project,
     mcpBranch: mcp.branch,
   };

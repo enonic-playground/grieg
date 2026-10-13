@@ -81,13 +81,19 @@ phrases), which the React bundle reads at boot.
   - `lib/mcp.ts` serves protocol `2026-07-28` and the legacy `initialize` handshake from one
     method table. The era comes from the `MCP-Protocol-Version` header, then `params._meta`.
   - The descriptor allows `role:system.everyone`, so `lib/access.ts` is the whole gate, checked
-    in this order: refuse any cookie, check `Origin` against `Host`, refuse while `mcp.token` or
-    `mcp.user` is unset, then match the bearer token.
+    in this order: refuse any cookie, check `Origin` against `Host`, require a bearer, then
+    admit a `grieg_` bearer only through the injected key resolver (never the shared token),
+    and any other bearer only when it matches `mcp.token` while `mcp.token` and `mcp.user` are
+    both set (deprecated shared-token mode).
+  - The resolver is `authenticate()` in `lib/keys.ts`: the key must exist and be unexpired, and
+    its owner must exist, be enabled and hold `role:com.enonic.app.grieg.mcp` at request time
+    (`getMemberships(owner, true)` as admin).
   - Same-origin compares scheme, host and port as XP resolves them, `X-Forwarded-*` included,
     and the host must also be trusted. Same-origin alone does not stop DNS rebinding.
   - XP replaces 401 bodies and anonymous 403s with its login page, so the log is the only
-    place a rejection reason appears. Never log a cookie value or a token.
-  - The content tools (`lib/tools.ts`) and node tools (`lib/node-tools.ts`) run as `mcp.user`
+    place a rejection reason appears. Never log a cookie value, a token, a key or its digest.
+  - The content tools (`lib/tools.ts`) and node tools (`lib/node-tools.ts`) run as the acting
+    user, the key's owner or `mcp.user` (`ToolsConfig.user`, `idProvider`, `credential`),
     through `lib/run-as.ts`, without a `principals` override, and refuse to run when XP
     silently resolves that user to anonymous.
   - lib-repo `list()` is admin-only, so `node_repos` lists as admin and keeps only branches

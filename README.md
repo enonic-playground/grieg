@@ -4,13 +4,13 @@ Enonic XP application that orchestrates AI integrations, scheduled jobs and work
 
 ## Surfaces
 
-| Surface       | Path                                  | Access               |
-| ------------- | ------------------------------------- | -------------------- |
-| Admin tool    | `admin/tools/main`                    | `role:system.admin`  |
-| System API    | `/api/com.enonic.app.grieg:system`    | `role:system.admin`  |
-| Workflows API | `/api/com.enonic.app.grieg:workflows` | `role:system.admin`  |
-| Crons API     | `/api/com.enonic.app.grieg:crons`     | `role:system.admin`  |
-| MCP API       | `/api/com.enonic.app.grieg:mcp`       | public, bearer token |
+| Surface       | Path                                  | Access              |
+| ------------- | ------------------------------------- | ------------------- |
+| Admin tool    | `admin/tools/main`                    | `role:system.admin` |
+| System API    | `/api/com.enonic.app.grieg:system`    | `role:system.admin` |
+| Workflows API | `/api/com.enonic.app.grieg:workflows` | `role:system.admin` |
+| Crons API     | `/api/com.enonic.app.grieg:crons`     | `role:system.admin` |
+| MCP API       | `/api/com.enonic.app.grieg:mcp`       | public, bearer key  |
 
 ## Development
 
@@ -27,19 +27,19 @@ pnpm check          # lint + type-check + tests
 Create `$XP_HOME/config/com.enonic.app.grieg.cfg`:
 
 ```properties
-# Shared secret clients send as `Authorization: Bearer <token>`.
-# The MCP endpoint refuses every request while this is unset.
-mcp.token = change-me
-
-# Content context the MCP tools operate in.
+# Content context the MCP tools operate in. With `mcp.branch = master`, edits made with a
+# personal key go live at once under the key owner's name.
 mcp.project = default
 mcp.branch = draft
 
-# XP user the tools act as, in the `mcp.idProvider` ID provider. Required: there is no
-# default, and the endpoint refuses every request while it is unset. Its own permissions
-# apply, and Content Studio shows it as the modifier. A missing or disabled user makes every
-# tool call fail rather than run anonymously.
-mcp.user = editor
+# Deprecated shared-token mode, off unless both `mcp.token` and `mcp.user` are set. A bearer
+# equal to `mcp.token` then runs the tools as `mcp.user` in the `mcp.idProvider` ID provider,
+# and the first such request after each config change logs a deprecation warning. Personal
+# keys work whether or not these are set. A missing or disabled `mcp.user` makes every tool
+# call fail rather than run anonymously. `mcp.token` must not start with `grieg_`: such a
+# bearer is only ever looked up as a personal key.
+mcp.token =
+mcp.user =
 mcp.idProvider = system
 
 # Browser origins allowed to call the endpoint, comma-separated. Empty by default. CLI
@@ -64,7 +64,7 @@ mcp.nodes.repos =
 ```
 
 > [!IMPORTANT]
-> `mcp.user` no longer defaults to `su`. An install that relied on the default has its MCP endpoint disabled until `mcp.user` is set.
+> `mcp.token` and `mcp.user` are deprecated. Give each user a personal key (see [MCP](#mcp)), then unset both. An install that keeps them set keeps working as before.
 
 A request that carries an `Origin` header is accepted only when that origin is listed in `mcp.allowedOrigins`, or when it is same-origin with the request (scheme, host and port, as XP resolves them with `X-Forwarded-*` headers) on a trusted host. Same-origin alone is not enough, since in a DNS-rebinding attack both headers name the attacker's host. A request that carries any cookie is refused outright: MCP clients send none, and XP would otherwise admit a logged-in admin's browser session.
 
@@ -74,37 +74,43 @@ XP picks up changes to this file without a restart.
 
 The endpoint is `http://<host>:8080/api/com.enonic.app.grieg:mcp`, a stateless MCP server over HTTP POST. It speaks protocol `2026-07-28` (`server/discover` plus per-request `_meta`) and the legacy `initialize` handshake (`2025-11-25`, `2025-06-18`, `2025-03-26`) from the same URL.
 
-| Tool               | Does                                                                                        |
-| ------------------ | ------------------------------------------------------------------------------------------- |
-| `content_search`   | Full-text search by `text`, or list the children of `path`; compact summaries and a cursor  |
-| `content_get`      | One item by id or path, with `data` (default), `x`, `page`, `attachments` or `fields`       |
-| `content_type_get` | A content type's fields as dot paths, with input type, occurrences and config, depth-capped |
-| `content_update`   | Change `displayName`, `language` or top-level scalar `data` fields, with conflict checking  |
-| `content_create`   | Create an item on draft, in progress, validated against its content type                    |
-| `node_repos`       | Repositories and branches `mcp.user` can read, with whether the node tools may write them   |
-| `node_query`       | lib-node query (DSL or NoQL) with filters, sort, capped aggregations, `fields` and a cursor |
-| `node_get`         | One node by id or path, with `data` (default), `permissions`, `indexConfig` or `fields`     |
-| `node_create`      | Create a node under a parent; permissions are inherited and cannot be set                   |
-| `node_update`      | `set` and `unset` dot paths on a node, with `expectedVersionKey` conflict checking          |
+| Tool               | Does                                                                                           |
+| ------------------ | ---------------------------------------------------------------------------------------------- |
+| `content_search`   | Full-text search by `text`, or list the children of `path`; compact summaries and a cursor     |
+| `content_get`      | One item by id or path, with `data` (default), `x`, `page`, `attachments` or `fields`          |
+| `content_type_get` | A content type's fields as dot paths, with input type, occurrences and config, depth-capped    |
+| `content_update`   | Change `displayName`, `language` or top-level scalar `data` fields, with conflict checking     |
+| `content_create`   | Create an item on draft, in progress, validated against its content type                       |
+| `node_repos`       | Repositories and branches the acting user can read, with whether the node tools may write them |
+| `node_query`       | lib-node query (DSL or NoQL) with filters, sort, capped aggregations, `fields` and a cursor    |
+| `node_get`         | One node by id or path, with `data` (default), `permissions`, `indexConfig` or `fields`        |
+| `node_create`      | Create a node under a parent; permissions are inherited and cannot be set                      |
+| `node_update`      | `set` and `unset` dot paths on a node, with `expectedVersionKey` conflict checking             |
 
 `node_update` keeps a property's type: a `set` on a date, time, geo point or reference takes the string `node_get` shows for it and stores it as that type again. A `set` over a link, a binary reference or a property holding several typed values is refused, since a string would replace its type. Xml properties read as plain strings, so a `set` on one stores a String.
 
-The node tools run as `mcp.user` too, so XP's node permissions decide what they can read and write. `system-repo` and `system.*` repositories are never available. `com.enonic.cms.*` repositories are read-only through `node_*`, since a lib-node write would bypass content validation, the workflow reset and project roles; content writes go through `content_update`. Branches default to `draft` for content repositories and `master` elsewhere. `expectedVersionKey` is checked inside lib-node's update editor, which has no lock: it catches a write that landed since your read, but not one landing during the update itself.
+The node tools run as the acting user too, so XP's node permissions decide what they can read and write. `system-repo` and `system.*` repositories are never available. `com.enonic.cms.*` repositories are read-only through `node_*`, since a lib-node write would bypass content validation, the workflow reset and project roles; content writes go through `content_update`. Branches default to `draft` for content repositories and `master` elsewhere. `expectedVersionKey` is checked inside lib-node's update editor, which has no lock: it catches a write that landed since your read, but not one landing during the update itself.
 
 `content_create` always writes to the `draft` branch, whatever `mcp.branch` says, with `requireValid` on and the workflow state set to in-progress, so nothing an agent creates goes live until someone publishes it. XP reports only the first validation error, and none for a missing required field, so the tool first checks the data against the content type's occurrence rules and names the offending paths, the first ten per refusal plus a count of the rest. `content_type_get` expands nested item sets and option sets four levels deep; a set on the fifth level is listed, marked `capped`, without its fields.
 
 Summaries carry an `editUrl` into Content Studio. On the `draft` branch, edits need publishing in Content Studio to go live, and each edit resets the item's workflow state to in-progress.
 
-On startup grieg creates the role `role:com.enonic.app.grieg.mcp`, whose members may hold a personal MCP key. Roles live in `system-repo`, so the role stays after the app is uninstalled; delete it in the Users app if it is no longer wanted.
+### Authentication
+
+Each user authenticates with a personal key, sent as `Authorization: Bearer grieg_…`, and every tool runs as that key's owner: the owner's own permissions apply, and Content Studio records the owner as the modifier, so an agent's edits cannot be told apart from the owner's own. Revoking one key affects nobody else.
+
+On startup grieg creates the role `role:com.enonic.app.grieg.mcp`. A key is admitted only while its owner holds that role, directly or through a group, and is enabled. Both are checked on every request, so removing someone from the role or disabling them stops their key at once. A key expires 90 days after it was generated. The owner can be in any ID provider; XP builds their roles from stored memberships, which for an external ID provider are as fresh as that user's last interactive login. Roles live in `system-repo`, so the role stays after the app is uninstalled; delete it in the Users app if it is no longer wanted.
+
+Keys are generated by grieg's key store (`lib/keys.ts`), which nothing exposes yet: until the admin tool can issue them, keep the shared token configured. Any other bearer is compared with the deprecated shared `mcp.token` and runs as `mcp.user`, when both are set. The examples below use a personal key; a shared token goes in the same place.
 
 ### Claude Code
 
 ```bash
 claude mcp add --transport http grieg http://localhost:8080/api/com.enonic.app.grieg:mcp \
-  --header "Authorization: Bearer <token>"
+  --header "Authorization: Bearer <key>"
 ```
 
-Or share it through `.mcp.json`, keeping the token in the environment:
+Or share it through `.mcp.json`, keeping the key in the environment:
 
 ```json
 {
@@ -127,7 +133,7 @@ Clients that only speak MCP over stdio, or setups that keep the token out of the
 | Variable         | Meaning                                                                                                |
 | ---------------- | ------------------------------------------------------------------------------------------------------ |
 | `MCP_URL`        | The endpoint URL. Required                                                                             |
-| `MCP_TOKEN`      | The bearer token                                                                                       |
+| `MCP_TOKEN`      | The bearer: a personal key, or the shared token                                                        |
 | `MCP_TOKEN_FILE` | A file holding the token, or an XP config with an `mcp.token = …` line, used when `MCP_TOKEN` is unset |
 
 ```bash
@@ -157,24 +163,24 @@ For a static token, the third-party `mcp-remote` (`npx mcp-remote <url> --header
 
 ### Troubleshooting
 
-A rejected token gets `401`, but XP replaces the body with its login page, so the reason (disabled endpoint, missing or invalid token) is only in the XP log as a `MCP request … rejected` warning. The same applies to a disallowed `Origin` or `Host` and to a request carrying cookies: the endpoint answers 403, but XP turns a 403 for an anonymous caller into its 401 login challenge. An `Origin` or `Host` warning names the rejected value and the config key that would admit it, and a disabled-endpoint warning names the key to set. A cookie warning lists the cookie names, never their values, and a bearer warning says only whether the token was missing or invalid.
+A rejected bearer gets `401`, but XP replaces the body with its login page, so the reason is only in the XP log as a `MCP request … rejected` warning. For a personal key it is one of: unknown key (never generated, regenerated or deleted), expired, owner no longer exists, owner disabled, or owner does not hold `role:com.enonic.app.grieg.mcp`; the warning names the owner, never the key. For any other bearer it is a missing or invalid token, or shared-token mode being off. The same applies to a disallowed `Origin` or `Host` and to a request carrying cookies: the endpoint answers 403, but XP turns a 403 for an anonymous caller into its 401 login challenge. An `Origin` or `Host` warning names the rejected value and the config key that would admit it. A cookie warning lists the cookie names, never their values, and a bearer warning says only whether the token was missing or invalid.
 
 ```bash
 curl -sX POST http://localhost:8080/api/com.enonic.app.grieg:mcp \
-  -H 'Authorization: Bearer change-me' \
+  -H 'Authorization: Bearer grieg_…' \
   -H 'Content-Type: application/json' \
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
 ```
 
 ### Conformance
 
-`pnpm conformance` runs the official suite (`@modelcontextprotocol/conformance`, pinned) with `--requirements 2026-07-28` against a running XP with grieg deployed. The suite sends no auth, so the script puts a local proxy on port 3999 that adds the bearer token and forwards `Host` unchanged.
+`pnpm conformance` runs the official suite (`@modelcontextprotocol/conformance`, pinned) with `--requirements 2026-07-28` against a running XP with grieg deployed. The suite sends no auth, so the script puts a local proxy on port 3999 that adds `GRIEG_MCP_TOKEN` as the bearer, a personal key or the shared token, and forwards `Host` unchanged.
 
 ```bash
-GRIEG_MCP_TOKEN=change-me pnpm conformance            # GRIEG_XP_URL defaults to http://localhost:8080
-GRIEG_MCP_TOKEN=change-me pnpm conformance --update   # rewrite the allowlist from this run
+GRIEG_MCP_TOKEN=grieg_… pnpm conformance            # GRIEG_XP_URL defaults to http://localhost:8080
+GRIEG_MCP_TOKEN=grieg_… pnpm conformance --update   # rewrite the allowlist from this run
 ```
 
 It fails when a check listed in `dev/conformance-allowlist.json` stops passing, and prints checks that pass but are not listed yet. Run it against an XP that routes any `Host` to the endpoint. With `vhost.enabled` and no mapping for the suite's `evil.example.com`, XP answers 404 itself, and the DNS-rebinding scenario passes without reaching grieg's check. Most failing scenarios need suite fixtures or optional features grieg does not implement, so the gate is the allowlist rather than the suite's exit code. Results land in `.tmp/conformance/`.
 
-The API descriptor is open to everyone by design — the token is the gate, so treat it as a credential and serve the endpoint over TLS.
+The API descriptor is open to everyone by design — the bearer is the gate, so treat a key as a credential and serve the endpoint over TLS.

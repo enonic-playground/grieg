@@ -24,7 +24,7 @@ type Check = { id: string; status: string };
 
 const token = process.env.GRIEG_MCP_TOKEN;
 if (token == null || token === '') {
-  console.error('Set GRIEG_MCP_TOKEN to the `mcp.token` of the running XP.');
+  console.error('Set GRIEG_MCP_TOKEN to a personal MCP key, or the `mcp.token` of the running XP.');
   process.exit(2);
 }
 const xp = new URL(process.env.GRIEG_XP_URL ?? 'http://localhost:8080');

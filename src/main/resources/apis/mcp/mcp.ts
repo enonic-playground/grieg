@@ -3,9 +3,11 @@ import { getToolUrl } from '/lib/xp/admin';
 import type { Request, Response } from '@enonic-types/core';
 
 import { checkAccess, originOf, type Rejection } from '../../lib/access';
-import { getMcpConfig } from '../../lib/config';
+import { getMcpConfig, type ToolsConfig } from '../../lib/config';
+import { authenticate } from '../../lib/keys';
 import { handle, selectTools, type HttpReply, type Server, type Tool } from '../../lib/mcp';
 import { createNodeTools } from '../../lib/node-tools';
+import { userKey } from '../../lib/run-as';
 import { createContentTools, serverInstructions } from '../../lib/tools';
 
 const CONTENT_STUDIO = 'com.enonic.app.contentstudio';
@@ -50,6 +52,19 @@ function warnUnknownToolsets(unknown: string[]): void {
   if (names !== '') log.warning(`MCP ignores unknown toolsets in \`mcp.toolsets\`: ${names}`);
 }
 
+let warnedSharedToken = '';
+
+// Logged once per `mcp.user` / `mcp.token` pair, so a config change warns again.
+function warnSharedToken(config: ToolsConfig): void {
+  const current = `${config.idProvider}:${config.user}:${config.token}`;
+  if (current === warnedSharedToken) return;
+  warnedSharedToken = current;
+  log.warning(
+    `MCP admitted a request through the deprecated shared \`mcp.token\`, acting as ${userKey(config)}; ` +
+      'give each user a personal key instead and unset `mcp.token` and `mcp.user`',
+  );
+}
+
 export function post(req: Request): Response {
   const origin = originOf(req.scheme, req.host, req.port);
   const access = checkAccess(
@@ -57,11 +72,13 @@ export function post(req: Request): Response {
       header: (name) => req.getHeader(name) ?? undefined,
       cookieNames: Object.keys(req.cookies ?? {}),
       origin,
+      resolveKey: authenticate,
     },
     getMcpConfig(),
   );
   if ('rejection' in access) return deny(req, access.rejection);
   const { config } = access;
+  if (config.credential === 'token') warnSharedToken(config);
 
   const toolsets: Record<string, Tool[]> = {
     content: createContentTools(config, contentStudioEditBase(origin, config.project)),

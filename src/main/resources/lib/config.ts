@@ -6,10 +6,10 @@ const DEFAULT_ID_PROVIDER = 'system';
 const DEFAULT_TOOLSETS = ['content', 'nodes'];
 
 export type McpConfig = {
+  // Deprecated shared-token mode, on only while `token` and `user` are both set.
   token?: string;
   project: string;
   branch: string;
-  // No default: an unset user disables the endpoint.
   user?: string;
   idProvider: string;
   allowedOrigins: string[];
@@ -20,7 +20,8 @@ export type McpConfig = {
   nodeRepos: string[];
 };
 
-export type ToolsConfig = McpConfig & { user: string };
+// `user` and `idProvider` name the acting user: a key's owner, or `mcp.user` for the shared token.
+export type ToolsConfig = McpConfig & { user: string; credential: 'key' | 'token' };
 
 function value(key: string): string | undefined {
   const raw = app.config[key]?.trim();

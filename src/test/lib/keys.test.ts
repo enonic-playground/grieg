@@ -5,6 +5,7 @@ import { createHash } from 'node:crypto';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
+  authenticate,
   deleteByOwner,
   findByOwner,
   generate,
@@ -27,6 +28,7 @@ const connect = vi.mocked(nodeLib.connect);
 const run = vi.mocked(contextLib.run);
 const getPrincipal = vi.mocked(authLib.getPrincipal);
 const createRole = vi.mocked(authLib.createRole);
+const getMemberships = vi.mocked(authLib.getMemberships);
 
 const OWNER = 'user:system:alice';
 const NOW = new Date('2026-10-13T10:00:00.000Z');
@@ -111,6 +113,7 @@ beforeEach(() => {
   getPrincipal.mockReset();
   getPrincipal.mockReturnValue({} as never);
   createRole.mockReset();
+  getMemberships.mockReset();
 });
 
 describe('generate', () => {
@@ -220,6 +223,85 @@ describe('resolve', () => {
   ])('should not look up the malformed key %s', (key) => {
     expect(resolve(key)).toBeUndefined();
     expect(connection.get).not.toHaveBeenCalled();
+  });
+});
+
+describe('authenticate', () => {
+  const KEY = `grieg_${'a'.repeat(43)}`;
+
+  function entitle(...roles: string[]): void {
+    getMemberships.mockReturnValue(roles.map((key) => ({ key })) as never);
+  }
+
+  beforeEach(() => {
+    connection.get.mockReturnValue(storedNode(record()));
+    entitle('role:system.everyone', 'role:com.enonic.app.grieg.mcp');
+  });
+
+  it("should resolve the owner's login and ID provider and record the use", () => {
+    expect(authenticate(KEY, NOW)).toEqual({ login: 'alice', idProvider: 'system' });
+    expect(getMemberships).toHaveBeenCalledWith(OWNER, true);
+    expect(connection.update).toHaveBeenCalledTimes(1);
+  });
+
+  it('should look the owner up as admin', () => {
+    let asAdmin = false;
+    const seen: boolean[] = [];
+    run.mockImplementation((context, callback) => {
+      asAdmin =
+        (context as { principals?: string[] }).principals?.includes('role:system.admin') ?? false;
+      try {
+        return callback();
+      } finally {
+        asAdmin = false;
+      }
+    });
+    getPrincipal.mockImplementation((() => {
+      seen.push(asAdmin);
+      return {};
+    }) as never);
+    getMemberships.mockImplementation(() => {
+      seen.push(asAdmin);
+      return [{ key: 'role:com.enonic.app.grieg.mcp' }] as never;
+    });
+
+    authenticate(KEY, NOW);
+
+    expect(seen).toEqual([true, true]);
+  });
+
+  it.each<[string, () => void, string]>([
+    ['an unknown key', () => connection.get.mockReturnValue(null), 'unknown MCP key'],
+    [
+      'an expired key',
+      () => connection.get.mockReturnValue(storedNode(record({ expires: NOW.toISOString() }))),
+      `MCP key of ${OWNER} expired`,
+    ],
+    [
+      'a non-user owner',
+      () => connection.get.mockReturnValue(storedNode(record({ owner: 'role:system.admin' }))),
+      'is not a user',
+    ],
+    ['a missing owner', () => getPrincipal.mockReturnValue(null), 'no longer exists'],
+    [
+      'a disabled owner',
+      () => getPrincipal.mockReturnValue({ disabled: true } as never),
+      'is disabled',
+    ],
+    [
+      'an owner outside the role',
+      () => entitle('role:system.everyone'),
+      'does not hold role:com.enonic.app.grieg.mcp',
+    ],
+  ])('should refuse %s without recording use or logging the key', (_label, arrange, reason) => {
+    arrange();
+
+    const result = authenticate(KEY, NOW);
+
+    expect(result).toEqual({ reason: expect.stringContaining(reason) });
+    expect(JSON.stringify(result)).not.toContain('a'.repeat(8));
+    expect(JSON.stringify(result)).not.toContain(sha256(KEY));
+    expect(connection.update).not.toHaveBeenCalled();
   });
 });
 

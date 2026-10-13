@@ -21,6 +21,7 @@ const CONFIG: ToolsConfig = {
   branch: 'draft',
   user: 'editor',
   idProvider: 'system',
+  credential: 'token',
   allowedOrigins: [],
   allowedHosts: [],
   toolsets: ['content', 'nodes'],

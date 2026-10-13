@@ -1,6 +1,6 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
-import type { Access } from '../../main/resources/lib/access';
+import type { Access, KeyResolution } from '../../main/resources/lib/access';
 import type { McpConfig } from '../../main/resources/lib/config';
 
 import { checkAccess, originOf } from '../../main/resources/lib/access';
@@ -16,6 +16,9 @@ const CONFIG: McpConfig = {
 };
 
 const AUTH = { Authorization: 'Bearer secret' };
+const KEY = 'grieg_personal';
+const KEY_AUTH = { Authorization: `Bearer ${KEY}` };
+const OWNER: KeyResolution = { login: 'alice', idProvider: 'ldap' };
 
 type Self = [scheme: string, host: string, port: number];
 
@@ -24,11 +27,24 @@ const LOCAL: Self = ['http', 'localhost', 8080];
 function check(
   headers: Record<string, string>,
   config: Partial<McpConfig> = {},
-  { cookieNames = [], self = LOCAL }: { cookieNames?: string[]; self?: Self } = {},
+  {
+    cookieNames = [],
+    self = LOCAL,
+    resolveKey = () => ({ reason: 'unknown MCP key' }),
+  }: {
+    cookieNames?: string[];
+    self?: Self;
+    resolveKey?: (key: string) => KeyResolution;
+  } = {},
 ): Access {
   const lower = Object.fromEntries(Object.entries(headers).map(([k, v]) => [k.toLowerCase(), v]));
   return checkAccess(
-    { header: (name) => lower[name.toLowerCase()], cookieNames, origin: originOf(...self) },
+    {
+      header: (name) => lower[name.toLowerCase()],
+      cookieNames,
+      origin: originOf(...self),
+      resolveKey,
+    },
     { ...CONFIG, ...config },
   );
 }
@@ -54,8 +70,8 @@ describe('checkAccess: cookies', () => {
     expect(denied.reason).toContain('JSESSIONID');
   });
 
-  it('should refuse cookies before reporting a disabled endpoint', () => {
-    expect(rejection(check({ Cookie: 'a=b' }, { token: undefined })).status).toBe(403);
+  it('should refuse cookies before checking the bearer', () => {
+    expect(rejection(check({ Cookie: 'a=b' })).status).toBe(403);
   });
 
   it('should report an empty Cookie header as unnamed', () => {
@@ -65,7 +81,9 @@ describe('checkAccess: cookies', () => {
 
 describe('checkAccess: Origin and Host', () => {
   it('should admit a request without Origin whatever its host', () => {
-    expect(check(AUTH, {}, { self: ['http', 'evil.example.com', 80] })).toEqual({ config: CONFIG });
+    expect(check(AUTH, {}, { self: ['http', 'evil.example.com', 80] })).toEqual({
+      config: { ...CONFIG, credential: 'token' },
+    });
   });
 
   it('should admit an Origin listed in mcp.allowedOrigins regardless of the request host', () => {
@@ -172,30 +190,74 @@ describe('checkAccess: Origin and Host', () => {
     expect(rejection(check({ ...AUTH, Origin: origin })).status).toBe(403);
   });
 
-  it('should refuse a bad Origin before reporting a disabled endpoint', () => {
-    const denied = rejection(check({ Origin: 'http://evil.example.com' }, { token: undefined }));
+  it('should refuse a bad Origin before checking the bearer', () => {
+    const denied = rejection(check({ Origin: 'http://evil.example.com' }));
 
     expect(denied.status).toBe(403);
   });
 });
 
-describe('checkAccess: configuration and bearer', () => {
-  it('should disable the endpoint while mcp.token is unset', () => {
-    const denied = rejection(check(AUTH, { token: undefined }));
+describe('checkAccess: per-user keys', () => {
+  it('should run as the key owner, whatever mcp.user and mcp.idProvider say', () => {
+    const resolveKey = vi.fn(() => OWNER);
 
-    expect(denied).toEqual({
-      status: 401,
-      reason: 'endpoint is disabled, set `mcp.token` in the app config',
+    const access = check(KEY_AUTH, {}, { resolveKey });
+
+    expect(resolveKey).toHaveBeenCalledWith(KEY);
+    expect(access).toEqual({
+      config: { ...CONFIG, user: 'alice', idProvider: 'ldap', credential: 'key' },
     });
   });
 
-  it('should disable the endpoint while mcp.user is unset, even with a valid bearer', () => {
-    const denied = rejection(check(AUTH, { user: undefined }));
+  it('should admit a key while shared-token mode is off', () => {
+    const access = check(
+      KEY_AUTH,
+      { token: undefined, user: undefined },
+      { resolveKey: () => OWNER },
+    );
 
-    expect(denied).toEqual({
-      status: 401,
-      reason: 'endpoint is disabled, set `mcp.user` in the app config',
-    });
+    expect(access).toHaveProperty('config.user', 'alice');
+  });
+
+  it('should refuse a key the resolver rejects, passing its reason on', () => {
+    const denied = rejection(
+      check(KEY_AUTH, {}, { resolveKey: () => ({ reason: 'MCP key of user:system:bob expired' }) }),
+    );
+
+    expect(denied).toEqual({ status: 401, reason: 'MCP key of user:system:bob expired' });
+  });
+
+  it('should never fall back to the shared token for a grieg_ bearer', () => {
+    const denied = rejection(check(KEY_AUTH, { token: KEY }));
+
+    expect(denied).toEqual({ status: 401, reason: 'unknown MCP key' });
+  });
+
+  it('should check cookies and Origin before resolving a key', () => {
+    const resolveKey = vi.fn(() => OWNER);
+
+    expect(rejection(check({ ...KEY_AUTH, Cookie: 'a=b' }, {}, { resolveKey })).status).toBe(403);
+    expect(
+      rejection(check({ ...KEY_AUTH, Origin: 'http://evil.example.com' }, {}, { resolveKey }))
+        .status,
+    ).toBe(403);
+    expect(resolveKey).not.toHaveBeenCalled();
+  });
+});
+
+describe('checkAccess: shared token', () => {
+  it('should run as mcp.user when the bearer matches mcp.token', () => {
+    expect(check(AUTH)).toEqual({ config: { ...CONFIG, credential: 'token' } });
+  });
+
+  it.each([
+    ['mcp.token', { token: undefined }],
+    ['mcp.user', { user: undefined }],
+  ])('should refuse a non-key bearer while %s is unset', (_label, config) => {
+    const denied = rejection(check(AUTH, config));
+
+    expect(denied.status).toBe(401);
+    expect(denied.reason).toContain('shared-token mode is off');
   });
 
   it.each([

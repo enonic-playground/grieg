@@ -25,6 +25,7 @@ const CONFIG: ToolsConfig = {
   branch: 'draft',
   user: 'editor',
   idProvider: 'system',
+  credential: 'token',
   allowedOrigins: [],
   allowedHosts: [],
   toolsets: ['content', 'nodes'],
@@ -109,6 +110,17 @@ describe('identity', () => {
 
     expect(message(outcome)).toContain('could not act as user:system:editor');
     expect(get).not.toHaveBeenCalled();
+  });
+
+  it('should point a key owner at the key, not at the app config', () => {
+    actAs('anonymous');
+
+    const outcome = tool('content_get', { ...CONFIG, credential: 'key' }).handler({
+      key: '/site/hello',
+    });
+
+    expect(message(outcome)).toContain('the key must be replaced');
+    expect(message(outcome)).not.toContain('mcp.user');
   });
 });
 
