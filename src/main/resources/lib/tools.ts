@@ -6,23 +6,32 @@ import type { Content } from '@enonic-types/core';
 
 import {
   buildSearchQuery,
+  checkOccurrences,
+  createRefusal,
+  flattenForm,
   MAX_COUNT,
+  MAX_FORM_DEPTH,
+  parseCreateArgs,
   parseGetArgs,
   parseSearchArgs,
   parseUpdateArgs,
   pickSubtrees,
   planUpdate,
-  SUBTREE_BUDGET,
   SUBTREES,
   normalizeKey,
   toNodePath,
   toSummary,
+  unknownKeys,
   type Summary,
 } from './content-shape';
 import { nodeInstructions } from './node-tools';
 import { asConfiguredUser as runAs, userKey } from './run-as';
+import { MAX_FIELDS, nextCursor, projectFields, SUBTREE_BUDGET } from './shape';
 
 const CONTENT_REPO_PREFIX = 'com.enonic.cms.';
+const DRAFT = 'draft';
+// Problems listed in one content_create refusal; the rest show up on the retry.
+const MAX_PROBLEMS = 10;
 
 type JsonObject = Record<string, unknown>;
 
@@ -34,12 +43,17 @@ function fail(message: string): ToolOutcome {
   return { ok: false, message };
 }
 
-function asConfiguredUser(config: ToolsConfig, callback: () => ToolOutcome): ToolOutcome {
-  return runAs(
-    config,
-    { repository: `${CONTENT_REPO_PREFIX}${config.project}`, branch: config.branch },
-    callback,
-  );
+function errorMessage(e: unknown): string | undefined {
+  if (e instanceof Error) return e.message;
+  return e == null ? undefined : String(e);
+}
+
+function asConfiguredUser(
+  config: ToolsConfig,
+  callback: () => ToolOutcome,
+  branch = config.branch,
+): ToolOutcome {
+  return runAs(config, { repository: `${CONTENT_REPO_PREFIX}${config.project}`, branch }, callback);
 }
 
 type ParentBuckets = { parents?: { buckets?: { key: string }[] } };
@@ -111,6 +125,28 @@ const KEY_SCHEMA = {
 
 const SCALAR_SCHEMA = { type: ['string', 'number', 'boolean'] };
 
+const OCCURRENCES_SCHEMA = {
+  type: 'object',
+  properties: { min: { type: 'integer' }, max: { type: 'integer', description: '0 is unlimited' } },
+};
+
+const FORM_FIELD_SCHEMA = {
+  type: 'object',
+  properties: {
+    path: { type: 'string', description: 'Dot path into data' },
+    kind: { type: 'string', enum: ['input', 'itemSet', 'optionSet', 'option'] },
+    label: { type: 'string' },
+    helpText: { type: 'string' },
+    inputType: { type: 'string', description: 'e.g. TextLine, HtmlArea, ComboBox' },
+    occurrences: OCCURRENCES_SCHEMA,
+    selection: { ...OCCURRENCES_SCHEMA, description: 'How many options an option set selects' },
+    default: { type: 'boolean' },
+    config: { type: 'object', description: 'Input type config, such as the options of a ComboBox' },
+    capped: { type: 'boolean', description: 'Nested fields not listed: too deep' },
+  },
+  required: ['path', 'kind', 'label'],
+};
+
 //
 // * Tools
 //
@@ -125,19 +161,22 @@ function contentInstructions(config: ToolsConfig): string {
   const head = `Content tools for Enonic XP project \`${config.project}\`, branch \`${config.branch}\`, acting as ${userKey(config)}.`;
   const paths =
     'Paths look like /my-site/articles/item; the /content prefix is optional, and ids work wherever a key is accepted.';
+  const find =
+    'Find items with content_search (by `text`, or by `path` to list children; pass `nextCursor` back as `cursor` for more), read one with content_get (`fields` picks dot paths in data)';
   if (config.readOnly) {
     return [
       head,
-      'Find items with content_search (by `text`, or by `path` to list children), and read one with content_get. The server is read-only.',
+      `${find}, and list a content type's fields with content_type_get. The server is read-only.`,
       paths,
       'Every summary has an `editUrl` to Content Studio; give it to the user when they need to review or edit.',
     ].join('\n');
   }
   return [
     head,
-    'Find items with content_search (by `text`, or by `path` to list children), read one with content_get, change one with content_update.',
+    `${find}, change one with content_update, create one with content_create.`,
     paths,
     'content_update changes displayName, language and top-level scalar data fields only. Pass `expectedModifiedTime` from your last read to avoid overwriting someone else.',
+    'Before content_create, call content_type_get for the fields; fix the paths a refusal names and retry. New items land on draft, in progress.',
     draftNote(config),
     'Every summary has an `editUrl` to Content Studio; give it to the user when they need to review or publish.',
   ].join('\n');
@@ -165,7 +204,8 @@ export function createContentTools(config: ToolsConfig, editBase: string): Tool[
     description:
       `Find content items in ${where}. Pass \`text\` for a relevance-ranked search on display name, name and all text; ` +
       'pass only `path` to list the direct children of that path (`/` for the top level); combine both to search inside a subtree. ' +
-      'Returns summaries, not field values: use content_get for those.',
+      'Returns summaries, not field values: use content_get for those. ' +
+      'Pass `nextCursor` back as `cursor` with the same arguments for the next page.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -174,6 +214,10 @@ export function createContentTools(config: ToolsConfig, editBase: string): Tool[
         contentType: { type: 'string', description: 'Only this content type, e.g. base:folder' },
         count: { type: 'integer', minimum: 1, maximum: MAX_COUNT, default: 10 },
         start: { type: 'integer', minimum: 0, default: 0, description: 'Offset for paging' },
+        cursor: {
+          type: 'string',
+          description: 'nextCursor from the previous page; replaces `start`',
+        },
       },
       additionalProperties: false,
     },
@@ -184,6 +228,7 @@ export function createContentTools(config: ToolsConfig, editBase: string): Tool[
         start: { type: 'integer' },
         count: { type: 'integer' },
         hits: { type: 'array', items: SUMMARY_SCHEMA },
+        nextCursor: { type: 'string', description: 'Present while more hits remain' },
       },
       required: ['total', 'start', 'count', 'hits'],
     },
@@ -202,11 +247,13 @@ export function createContentTools(config: ToolsConfig, editBase: string): Tool[
           count,
           contentTypes: contentType == null ? undefined : [contentType],
         });
+        const cursor = nextCursor(parsed.value, result.hits.length, result.total);
         return ok({
           total: result.total,
           start,
           count: result.count,
           hits: summarize(result.hits, editBase),
+          ...(cursor != null && { nextCursor: cursor }),
         });
       });
     },
@@ -217,16 +264,22 @@ export function createContentTools(config: ToolsConfig, editBase: string): Tool[
     title: 'Read content',
     description:
       `Read one content item in ${where} by id or path. Returns its summary plus the subtrees named in \`include\` ` +
-      `(default: data). A subtree over ${SUBTREE_BUDGET} characters is replaced by a truncation marker.`,
+      `(default: data, unless \`fields\` is given) and the dot paths into data named in \`fields\`. ` +
+      `A subtree over ${SUBTREE_BUDGET} characters is replaced by a truncation marker; \`fields\` share one ${SUBTREE_BUDGET}-character budget.`,
     inputSchema: {
       type: 'object',
       properties: {
         key: KEY_SCHEMA,
+        fields: {
+          type: 'array',
+          items: { type: 'string' },
+          maxItems: MAX_FIELDS,
+          description: 'Dot paths into data, e.g. ["title", "blocks.0.text"]',
+        },
         include: {
           type: 'array',
           items: { type: 'string', enum: [...SUBTREES] },
-          default: ['data'],
-          description: 'Subtrees to return',
+          description: 'Subtrees to return; defaults to data unless `fields` is given',
         },
       },
       required: ['key'],
@@ -240,6 +293,7 @@ export function createContentTools(config: ToolsConfig, editBase: string): Tool[
         x: {},
         page: {},
         attachments: {},
+        fields: { type: 'object', description: 'Values by requested dot path' },
       },
       required: Object.keys(SUMMARY_PROPERTIES),
     },
@@ -247,15 +301,153 @@ export function createContentTools(config: ToolsConfig, editBase: string): Tool[
     handler: (args) => {
       const parsed = parseGetArgs(args);
       if (!parsed.ok) return fail(parsed.message);
-      const { key, include } = parsed.value;
+      const { key, fields, include } = parsed.value;
 
       return asConfiguredUser(config, () => {
         const content = getContent(key);
         if (content == null) {
           return notFound(key);
         }
-        return ok({ ...summarize([content], editBase)[0], ...pickSubtrees(content, include) });
+        return ok({
+          ...summarize([content], editBase)[0],
+          ...pickSubtrees(content, include),
+          ...(fields != null && {
+            fields: projectFields(content.data as JsonObject, fields, {
+              remaining: SUBTREE_BUDGET,
+            }),
+          }),
+        });
       });
+    },
+  };
+
+  const typeGet: Tool = {
+    name: 'content_type_get',
+    title: 'Read content type',
+    description:
+      'List the fields of one content type, e.g. `my.app:article` or `base:folder`, as a flat list of dot paths into data with their input type, occurrences (`max` 0 is unlimited) and input config such as the options of a ComboBox. ' +
+      `Item sets and option sets add a level to the path; an option set's data is \`{ "_selected": ["<option>"], "<option>": {…} }\`. Nesting deeper than ${MAX_FORM_DEPTH} levels is marked \`capped\`. Call it before content_create.`,
+    inputSchema: {
+      type: 'object',
+      properties: { name: { type: 'string', description: 'Content type name, e.g. base:folder' } },
+      required: ['name'],
+      additionalProperties: false,
+    },
+    outputSchema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string' },
+        displayName: { type: 'string' },
+        description: NULLABLE_STRING,
+        superType: NULLABLE_STRING,
+        abstract: { type: 'boolean', description: 'Abstract types cannot be created' },
+        allowChildContent: { type: 'boolean' },
+        form: { type: 'array', items: FORM_FIELD_SCHEMA },
+        note: { type: 'string', description: 'Where the form was capped' },
+      },
+      required: ['name', 'displayName', 'abstract', 'allowChildContent', 'form'],
+    },
+    annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
+    handler: (args) => {
+      const unknown = unknownKeys(args, ['name']);
+      if (unknown != null) return fail(unknown);
+      const name = typeof args.name === 'string' ? args.name.trim() : '';
+      if (name === '') return fail('`name` is required: a content type name such as base:folder.');
+
+      return asConfiguredUser(config, () => {
+        const type = contentLib.getType(name);
+        if (type == null) {
+          return fail(
+            `No content type \`${name}\`. Names look like \`base:folder\` or \`<app key>:<name>\`; the \`type\` of a content_search hit is one.`,
+          );
+        }
+        const { fields, capped } = flattenForm(type.form ?? []);
+        return ok({
+          name: type.name,
+          displayName: type.title,
+          description: type.description ?? null,
+          superType: type.superType ?? null,
+          abstract: type.abstract,
+          allowChildContent: type.allowChildContent,
+          form: fields,
+          ...(capped.length > 0 && {
+            note: `Fields nested deeper than ${MAX_FORM_DEPTH} levels are not listed under: ${capped.join(', ')}. Read an existing item of this type with content_get to see their shape.`,
+          }),
+        });
+      });
+    },
+  };
+
+  const create: Tool = {
+    name: 'content_create',
+    title: 'Create content',
+    description:
+      `Create one content item under \`parentPath\` in project \`${config.project}\`, always on the draft branch with workflow state in-progress, so it goes live only when someone publishes it in Content Studio. ` +
+      '`data` must be valid for `contentType`: call content_type_get first. An item set is an object, or an array of objects for several; leave out a field rather than setting it to null. ' +
+      'A refusal names the offending paths: fix them and retry. Without `name`, XP derives one from `displayName`.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        parentPath: { type: 'string', description: 'Parent path, e.g. / or /my-site/articles' },
+        contentType: { type: 'string', description: 'e.g. base:folder or my.app:article' },
+        displayName: { type: 'string' },
+        name: { type: 'string', description: 'Path segment; derived from displayName if left out' },
+        language: { type: 'string', description: 'Locale code, e.g. en or nb-NO' },
+        data: { type: 'object', description: 'Field values by name, per content_type_get' },
+      },
+      required: ['parentPath', 'contentType', 'displayName'],
+      additionalProperties: false,
+    },
+    outputSchema: SUMMARY_SCHEMA,
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: false,
+      openWorldHint: false,
+    },
+    handler: (args) => {
+      const parsed = parseCreateArgs(args);
+      if (!parsed.ok) return fail(parsed.message);
+      const { parentPath, contentType, displayName, name, language, data } = parsed.value;
+
+      return asConfiguredUser(
+        config,
+        () => {
+          const type = contentLib.getType(contentType);
+          if (type == null) {
+            return fail(
+              `No content type \`${contentType}\`. Check the name with content_type_get, e.g. \`base:folder\`.`,
+            );
+          }
+          const problems = checkOccurrences(type.form ?? [], data);
+          if (problems.length > 0) {
+            const shown = problems.slice(0, MAX_PROBLEMS).join(' ');
+            const more =
+              problems.length > MAX_PROBLEMS ? ` …and ${problems.length - MAX_PROBLEMS} more.` : '';
+            return fail(
+              `Nothing was created: the data does not fit \`${contentType}\`. ${shown}${more} Check the fields with content_type_get and retry.`,
+            );
+          }
+
+          let created: Content;
+          try {
+            created = contentLib.create({
+              parentPath,
+              contentType,
+              displayName,
+              name,
+              language,
+              data,
+              requireValid: true,
+              workflow: { state: 'IN_PROGRESS' },
+            });
+          } catch (e) {
+            return fail(createRefusal(contentType, errorMessage(e)));
+          }
+          return ok(summarize([created], editBase)[0]);
+        },
+        DRAFT,
+      );
     },
   };
 
@@ -374,5 +566,5 @@ export function createContentTools(config: ToolsConfig, editBase: string): Tool[
     },
   };
 
-  return [search, get, update];
+  return [search, get, typeGet, update, create];
 }

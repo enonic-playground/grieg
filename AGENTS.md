@@ -48,9 +48,11 @@ node dev/mcp-stdio.ts           # stdio→HTTP MCP forwarder for stdio-only clie
   name a server lib after one of them.
 - `delete` is a reserved word: write a DELETE handler as a named function and export it with
   `export { handleDelete as delete }`.
-- `lib/mcp.ts`, `lib/access.ts`, `lib/content-shape.ts`, `lib/node-shape.ts` and
-  `lib/config.ts` stay free of `/lib/xp/*` imports so tests can load them directly. Tests reach
-  the other server modules through the `/lib/xp/*` stubs aliased in `vite.config.ts`.
+- `lib/mcp.ts`, `lib/access.ts`, `lib/shape.ts`, `lib/content-shape.ts`, `lib/node-shape.ts`
+  and `lib/config.ts` stay free of `/lib/xp/*` imports so tests can load them directly. Tests
+  reach the other server modules through the `/lib/xp/*` stubs aliased in `vite.config.ts`.
+  `lib/shape.ts` holds what the content and node tools share (cursors, dot paths, projection),
+  and imports nothing, so the shape modules never import each other in a cycle.
 
 ## Client code
 
