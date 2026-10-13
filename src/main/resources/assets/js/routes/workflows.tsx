@@ -17,6 +17,7 @@ import {
   TableRow,
 } from '../components/ui/table';
 import { workflowsQueryOptions } from '../lib/api/workflows';
+import { requireAdmin } from '../lib/guards';
 
 const WORKFLOWS_PAGE_NAME = 'WorkflowsPage';
 
@@ -70,5 +71,6 @@ const WorkflowsPage = (): ReactElement => {
 WorkflowsPage.displayName = WORKFLOWS_PAGE_NAME;
 
 export const Route = createFileRoute('/workflows')({
+  beforeLoad: requireAdmin,
   component: WorkflowsPage,
 });

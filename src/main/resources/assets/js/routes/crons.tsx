@@ -17,6 +17,7 @@ import {
   TableRow,
 } from '../components/ui/table';
 import { cronJobsQueryOptions } from '../lib/api/crons';
+import { requireAdmin } from '../lib/guards';
 
 const CRONS_PAGE_NAME = 'CronsPage';
 
@@ -72,5 +73,6 @@ const CronsPage = (): ReactElement => {
 CronsPage.displayName = CRONS_PAGE_NAME;
 
 export const Route = createFileRoute('/crons')({
+  beforeLoad: requireAdmin,
   component: CronsPage,
 });

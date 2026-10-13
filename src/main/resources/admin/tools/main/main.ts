@@ -6,6 +6,7 @@ import { apiUrl, assetUrl } from '/lib/xp/portal';
 
 import type { Request, Response } from '@enonic-types/core';
 
+import { originOf } from '../../../lib/access';
 import { MCP_ROLE_NAME } from '../../../lib/keys';
 
 const PHRASE_BUNDLE = 'i18n/app';
@@ -21,6 +22,8 @@ type GriegConfig = {
     crons: string;
     keys: string;
   };
+  // Absolute: the MCP API is mounted on `web`, outside the admin tool.
+  mcpUri: string;
   launcherUri: string;
   // Cosmetic: lets the client hide routes. Every API checks access itself.
   access: {
@@ -50,6 +53,7 @@ function buildConfig(req: Request): GriegConfig {
       crons: apiUrl({ api: 'crons', type: 'server' }),
       keys: apiUrl({ api: 'keys', type: 'server' }),
     },
+    mcpUri: `${originOf(req.scheme, req.host, req.port)}/api/${app.name}:mcp`,
     launcherUri: extensionUrl({
       application: 'com.enonic.xp.app.main',
       extension: 'launcher',

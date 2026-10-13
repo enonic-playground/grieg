@@ -1,5 +1,12 @@
-import { Link, useRouterState } from '@tanstack/react-router';
-import { CalendarClock, PanelRightClose, PanelRightOpen, Settings, Workflow } from 'lucide-react';
+import { Link, rootRouteId, useRouteContext, useRouterState } from '@tanstack/react-router';
+import {
+  CalendarClock,
+  KeyRound,
+  PanelRightClose,
+  PanelRightOpen,
+  Settings,
+  Workflow,
+} from 'lucide-react';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -12,12 +19,14 @@ type NavItem = {
   to: string;
   labelKey: string;
   icon: LucideIcon;
+  adminOnly: boolean;
 };
 
 const NAV_ITEMS: NavItem[] = [
-  { to: '/workflows', labelKey: 'nav.workflows', icon: Workflow },
-  { to: '/crons', labelKey: 'nav.crons', icon: CalendarClock },
-  { to: '/system', labelKey: 'nav.system', icon: Settings },
+  { to: '/workflows', labelKey: 'nav.workflows', icon: Workflow, adminOnly: true },
+  { to: '/crons', labelKey: 'nav.crons', icon: CalendarClock, adminOnly: true },
+  { to: '/system', labelKey: 'nav.system', icon: Settings, adminOnly: true },
+  { to: '/mcp', labelKey: 'nav.mcp', icon: KeyRound, adminOnly: false },
 ];
 
 // ? 45px = 44px content + 1px border-right. Gives exactly size-8 (32px) buttons
@@ -33,9 +42,11 @@ const SIDEBAR_NAME = 'Sidebar';
 export const Sidebar = ({ className }: SidebarProps): ReactElement => {
   const [collapsed, setCollapsed] = useState(false);
   const { t } = useTranslation();
+  const { config } = useRouteContext({ from: rootRouteId });
 
   const routerState = useRouterState();
   const currentPath = routerState.location.pathname;
+  const navItems = NAV_ITEMS.filter((item) => config.access.admin || !item.adminOnly);
 
   const sidebarClasses = cn(
     'border-border bg-card flex h-full flex-col border-r',
@@ -79,7 +90,7 @@ export const Sidebar = ({ className }: SidebarProps): ReactElement => {
 
       {/* Navigation */}
       <nav className="flex flex-1 flex-col gap-px overflow-x-hidden overflow-y-auto px-1.5 py-2">
-        {NAV_ITEMS.map((item) => {
+        {navItems.map((item) => {
           const isActive = currentPath.startsWith(item.to);
           const Icon = item.icon;
           const label = t(item.labelKey);

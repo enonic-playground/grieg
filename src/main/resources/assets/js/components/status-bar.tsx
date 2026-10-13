@@ -1,4 +1,4 @@
-import { useRouterState } from '@tanstack/react-router';
+import { rootRouteId, useRouteContext, useRouterState } from '@tanstack/react-router';
 import { useTranslation } from 'react-i18next';
 
 import type { ReactElement } from 'react';
@@ -9,6 +9,7 @@ const ROUTE_STATUS_KEYS: Record<string, string> = {
   '/workflows': 'statusBar.workflows',
   '/crons': 'statusBar.crons',
   '/system': 'statusBar.system',
+  '/mcp': 'statusBar.mcp',
 };
 
 function getStatusKey(pathname: string): string {
@@ -26,6 +27,7 @@ const STATUS_BAR_NAME = 'StatusBar';
 
 export const StatusBar = ({ className }: StatusBarProps): ReactElement => {
   const { t } = useTranslation();
+  const { config } = useRouteContext({ from: rootRouteId });
   const routerState = useRouterState();
   const statusText = t(getStatusKey(routerState.location.pathname));
 
@@ -38,7 +40,9 @@ export const StatusBar = ({ className }: StatusBarProps): ReactElement => {
         <span className="font-mono text-xs tracking-wide text-white/88">{statusText}</span>
       </div>
       <div className="flex-1" />
-      <span className="font-mono text-xs tracking-wider text-white/45">{t('statusBar.role')}</span>
+      <span className="font-mono text-xs tracking-wider text-white/45">
+        {t(config.access.admin ? 'statusBar.role.admin' : 'statusBar.role.member')}
+      </span>
     </div>
   );
 };
