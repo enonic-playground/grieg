@@ -66,6 +66,13 @@ phrases), which the React bundle reads at boot.
 - **Storage.** Workflows are nodes under `/workflows` in the app's own repository
   (`com.enonic.app.grieg`), created on startup by `main.ts`. All store access goes through
   `lib/repo.ts`, which runs in an admin context: callers are authorized before they reach it.
+- **MCP keys** live under `/mcp/keys` in the same repository (`lib/keys.ts`). `/mcp` and
+  `/mcp/keys` carry an admin-only ACL (`ADMIN_ONLY` in `lib/repo.ts`), because the node tools
+  can reach this repository as a non-admin user. A key node is named by the SHA-256 hex digest
+  of the key, so a lookup is a `get` by path; the plaintext is returned once and never stored.
+  One key per owner, 90 days, immutable except a best-effort hourly `lastUsed`. `main.ts`
+  bootstraps `role:com.enonic.app.grieg.mcp`, the role that entitles a user to hold a key.
+  `lib/key-crypto.ts` wraps the JVM crypto behind `Java.type`, and tests mock it.
 - **Scheduling** uses core `lib-scheduler`, not the community `lib-cron`, because scheduler jobs
   are persisted and fire once per cluster. `apis/crons` only reads jobs and toggles `enabled`.
   Creating jobs needs a task descriptor, which arrives with the workflow runner.
