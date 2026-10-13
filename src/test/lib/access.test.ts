@@ -227,6 +227,26 @@ describe('checkAccess: per-user keys', () => {
     expect(denied).toEqual({ status: 401, reason: 'MCP key of user:system:bob expired' });
   });
 
+  it('should refuse with 503 when the resolver throws, logging no key or digest', () => {
+    const digest = 'ab'.repeat(32);
+    const denied = rejection(
+      check(
+        KEY_AUTH,
+        {},
+        {
+          resolveKey: () => {
+            throw new Error(`node /mcp/keys/${digest} unreadable for ${KEY}`);
+          },
+        },
+      ),
+    );
+
+    expect(denied).toMatchObject({ status: 503, message: 'Key lookup failed, try again later' });
+    expect(denied.reason).toMatch(/^MCP key lookup failed: /);
+    expect(denied.reason).not.toContain(KEY);
+    expect(denied.reason).not.toContain(digest);
+  });
+
   it('should never fall back to the shared token for a grieg_ bearer', () => {
     const denied = rejection(check(KEY_AUTH, { token: KEY }));
 

@@ -5,11 +5,15 @@ title:
 description:
   text: 'AI integrations, scheduled jobs and workflows'
   i18n: 'admin.tool.main.description'
+# MCP role members open the tool to manage their own key. Every API it lists declares its own
+# `allow`, so the other APIs stay admin-only.
 allow:
   - 'role:system.admin'
+  - 'role:com.enonic.app.grieg.mcp'
 apis:
   - 'admin:extension'
   - 'admin:status'
   - 'system'
   - 'workflows'
   - 'crons'
+  - 'keys'
