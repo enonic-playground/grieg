@@ -16,7 +16,8 @@ const FIELDS: { key: FieldKey; labelKey: string }[] = [
   { key: 'xpVersion', labelKey: 'system.field.xpVersion' },
   { key: 'appName', labelKey: 'system.field.appName' },
   { key: 'appVersion', labelKey: 'system.field.appVersion' },
-  { key: 'mcpEnabled', labelKey: 'system.field.mcpEnabled' },
+  { key: 'mcpKeys', labelKey: 'system.field.mcpKeys' },
+  { key: 'mcpSharedToken', labelKey: 'system.field.mcpSharedToken' },
   { key: 'mcpProject', labelKey: 'system.field.mcpProject' },
   { key: 'mcpBranch', labelKey: 'system.field.mcpBranch' },
 ];

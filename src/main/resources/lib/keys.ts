@@ -1,5 +1,6 @@
-import { createRole, getPrincipal } from '/lib/xp/auth';
+import { createRole, getMemberships, getPrincipal } from '/lib/xp/auth';
 
+import type { KeyResolution } from './access';
 import type { Node } from '/lib/xp/node';
 
 import { randomToken, sha256Hex } from './key-crypto';
@@ -18,6 +19,12 @@ const MAX_KEYS = 10_000;
 // 32 random bytes are 43 base64url characters without padding.
 const KEY_PATTERN = /^grieg_[\w-]{43}$/;
 const OWNER_PATTERN = /^user:[^:]+:[^:]+$/;
+
+type UserKey = `user:${string}:${string}`;
+
+function isUserKey(owner: string): owner is UserKey {
+  return OWNER_PATTERN.test(owner);
+}
 
 export type McpKey = {
   id: string;
@@ -116,7 +123,7 @@ function newest(keys: McpKey[]): McpKey | undefined {
 // lib-node has no lock, so two overlapping calls for one owner can each keep their key;
 // the next generate or deleteByOwner removes both.
 export function generate(owner: string, now = new Date()): GeneratedKey {
-  if (!OWNER_PATTERN.test(owner)) {
+  if (!isUserKey(owner)) {
     throw new Error(`MCP keys belong to users; \`${owner}\` is not a user key`);
   }
   const random = randomToken();
@@ -193,4 +200,31 @@ export function touch(key: McpKey, now = new Date()): void {
   } catch (e) {
     log.warning(`Could not record MCP key use for ${key.owner}: ${String(e)}`);
   }
+}
+
+// Checked on every request, so removing the owner from the role or disabling them stops the
+// key at once rather than at expiry.
+function ownerRefusal(owner: string): string | undefined {
+  if (!isUserKey(owner)) return 'is not a user';
+  return runInRepo(() => {
+    const user = getPrincipal(owner);
+    if (user == null) return 'no longer exists';
+    if (user.disabled === true) return 'is disabled';
+    const entitled = getMemberships(owner, true).some((principal) => principal.key === MCP_ROLE);
+    return entitled ? undefined : `does not hold ${MCP_ROLE}`;
+  });
+}
+
+// Reasons go to the log, so they never carry the key or its digest.
+export function authenticate(bearer: string, now = new Date()): KeyResolution {
+  const key = resolve(bearer);
+  if (key == null) return { reason: 'unknown MCP key' };
+  if (isExpired(key, now)) return { reason: `MCP key of ${key.owner} expired at ${key.expires}` };
+
+  const refusal = ownerRefusal(key.owner);
+  if (refusal != null) return { reason: `owner ${key.owner} of an MCP key ${refusal}` };
+
+  touch(key, now);
+  const [, idProvider, login] = key.owner.split(':');
+  return { login, idProvider };
 }

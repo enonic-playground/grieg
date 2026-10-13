@@ -2,7 +2,7 @@
 // directly: `pnpm run` writes to stdout, which is the protocol channel.
 //
 // MCP_URL         the MCP endpoint, e.g. http://localhost:8080/api/com.enonic.app.grieg:mcp
-// MCP_TOKEN       bearer token, or
+// MCP_TOKEN       bearer: a personal key or the shared token, or
 // MCP_TOKEN_FILE  a file holding the token, or an XP config with an `mcp.token = …` line
 
 import { readFileSync } from 'node:fs';

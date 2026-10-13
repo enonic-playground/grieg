@@ -9,8 +9,8 @@ export function userKey(config: ToolsConfig): string {
   return `user:${config.idProvider}:${config.user}`;
 }
 
-// No `principals` override: the configured user's own permissions apply, and XP records
-// that user as the modifier.
+// No `principals` override: the acting user's own permissions apply, and XP records that user
+// as the modifier.
 export function asConfiguredUser(
   config: ToolsConfig,
   target: RunTarget | undefined,
@@ -21,11 +21,13 @@ export function asConfiguredUser(
     const user = getContext().authInfo?.user;
     if (user?.login !== config.user || user.idProvider !== config.idProvider) {
       log.warning(`MCP tools could not run as ${userKey(config)}: user is missing or disabled`);
+      const fix =
+        config.credential === 'key'
+          ? 'An administrator must restore the user, or the key must be replaced.'
+          : 'An administrator must fix `mcp.user` / `mcp.idProvider` in the app config.';
       return {
         ok: false,
-        message:
-          `The server could not act as ${userKey(config)}: the user is missing or disabled. ` +
-          'An administrator must fix `mcp.user` / `mcp.idProvider` in the app config.',
+        message: `The server could not act as ${userKey(config)}: the user is missing or disabled. ${fix}`,
       };
     }
     return callback();
