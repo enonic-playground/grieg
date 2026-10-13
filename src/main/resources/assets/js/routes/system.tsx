@@ -9,6 +9,7 @@ import type { ReactElement } from 'react';
 import { Page, PageError, PageSkeleton } from '../components/page';
 import { Card, CardContent } from '../components/ui/card';
 import { systemInfoQueryOptions } from '../lib/api/system';
+import { requireAdmin } from '../lib/guards';
 
 type FieldKey = keyof SystemInfo;
 
@@ -57,5 +58,6 @@ const SystemPage = (): ReactElement => {
 SystemPage.displayName = SYSTEM_PAGE_NAME;
 
 export const Route = createFileRoute('/system')({
+  beforeLoad: requireAdmin,
   component: SystemPage,
 });

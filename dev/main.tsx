@@ -26,13 +26,17 @@ function buildApiUris(): GriegConfig['apiUris'] {
   return uris;
 }
 
+// `?as=member` boots as an MCP role member who is not an admin.
+const isMember = new URLSearchParams(window.location.search).get('as') === 'member';
+
 const config: GriegConfig = {
   appId: 'com.enonic.app.grieg',
   assetsUri: '/',
   toolUri: '/',
   apiUris: buildApiUris(),
+  mcpUri: 'http://localhost:8080/api/com.enonic.app.grieg:mcp',
   launcherUri: '#',
-  access: { admin: true, mcp: true },
+  access: { admin: !isMember, mcp: true },
   user: { key: 'user:system:su', displayName: 'Dev' },
   locale: 'en',
   phrases: parseProperties(appProperties),

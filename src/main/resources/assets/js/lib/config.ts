@@ -13,6 +13,7 @@ export type GriegConfig = {
     crons: string;
     keys: string;
   };
+  mcpUri: string;
   launcherUri: string;
   // Cosmetic: lets the client hide routes. Every API checks access itself.
   access: {

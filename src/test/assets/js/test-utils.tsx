@@ -4,6 +4,7 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import userEvent from '@testing-library/user-event';
 
 import type { GriegConfig } from '../../../main/resources/assets/js/lib/config';
+import type { AnyRouter } from '@tanstack/react-router';
 import type { ReactElement } from 'react';
 
 import { ThemeProvider } from '../../../main/resources/assets/js/components/theme-provider';
@@ -20,6 +21,7 @@ export function buildConfig(overrides?: Partial<GriegConfig>): GriegConfig {
       crons: '/api/crons',
       keys: '/api/keys',
     },
+    mcpUri: 'http://localhost:8080/api/com.enonic.app.grieg:mcp',
     launcherUri: '/launcher',
     access: { admin: true, mcp: true },
     user: { key: 'user:system:su', displayName: 'Super User' },
@@ -31,20 +33,24 @@ export function buildConfig(overrides?: Partial<GriegConfig>): GriegConfig {
 
 type RenderRouteOptions = {
   initialLocation?: string;
+  config?: GriegConfig;
 };
 
 type RenderRouteResult = {
   user: ReturnType<typeof userEvent.setup>;
+  router: AnyRouter;
+  queryClient: QueryClient;
 };
 
-export function renderRoute({ initialLocation = '/' }: RenderRouteOptions = {}): RenderRouteResult {
+export function renderRoute({
+  initialLocation = '/',
+  config = buildConfig(),
+}: RenderRouteOptions = {}): RenderRouteResult {
   const queryClient = new QueryClient({
     defaultOptions: {
       queries: { retry: false },
     },
   });
-
-  const config = buildConfig();
 
   const router = createRouter({
     routeTree,
@@ -65,7 +71,7 @@ export function renderRoute({ initialLocation = '/' }: RenderRouteOptions = {}):
   const user = userEvent.setup();
   render(<Wrapper />);
 
-  return { user };
+  return { user, router, queryClient };
 }
 
 export { fireEvent, screen, waitFor, within };

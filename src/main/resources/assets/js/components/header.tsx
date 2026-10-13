@@ -10,6 +10,7 @@ const ROUTE_TITLE_KEYS: Record<string, string> = {
   '/workflows': 'nav.workflows',
   '/crons': 'nav.crons',
   '/system': 'nav.system',
+  '/mcp': 'nav.mcp',
 };
 
 function getPageTitleKey(pathname: string): string {

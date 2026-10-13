@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as CronsRouteImport } from './routes/crons'
+import { Route as McpRouteImport } from './routes/mcp'
 import { Route as SystemRouteImport } from './routes/system'
 import { Route as WorkflowsRouteImport } from './routes/workflows'
 
@@ -22,6 +23,11 @@ const IndexRoute = IndexRouteImport.update({
 const CronsRoute = CronsRouteImport.update({
   id: '/crons',
   path: '/crons',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const McpRoute = McpRouteImport.update({
+  id: '/mcp',
+  path: '/mcp',
   getParentRoute: () => rootRouteImport,
 } as any)
 const SystemRoute = SystemRouteImport.update({
@@ -38,12 +44,14 @@ const WorkflowsRoute = WorkflowsRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/crons': typeof CronsRoute
+  '/mcp': typeof McpRoute
   '/system': typeof SystemRoute
   '/workflows': typeof WorkflowsRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/crons': typeof CronsRoute
+  '/mcp': typeof McpRoute
   '/system': typeof SystemRoute
   '/workflows': typeof WorkflowsRoute
 }
@@ -51,20 +59,22 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/crons': typeof CronsRoute
+  '/mcp': typeof McpRoute
   '/system': typeof SystemRoute
   '/workflows': typeof WorkflowsRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/crons' | '/system' | '/workflows'
+  fullPaths: '/' | '/crons' | '/mcp' | '/system' | '/workflows'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/crons' | '/system' | '/workflows'
-  id: '__root__' | '/' | '/crons' | '/system' | '/workflows'
+  to: '/' | '/crons' | '/mcp' | '/system' | '/workflows'
+  id: '__root__' | '/' | '/crons' | '/mcp' | '/system' | '/workflows'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   CronsRoute: typeof CronsRoute
+  McpRoute: typeof McpRoute
   SystemRoute: typeof SystemRoute
   WorkflowsRoute: typeof WorkflowsRoute
 }
@@ -83,6 +93,13 @@ declare module '@tanstack/react-router' {
       path: '/crons'
       fullPath: '/crons'
       preLoaderRoute: typeof CronsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/mcp': {
+      id: '/mcp'
+      path: '/mcp'
+      fullPath: '/mcp'
+      preLoaderRoute: typeof McpRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/system': {
@@ -105,6 +122,7 @@ declare module '@tanstack/react-router' {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   CronsRoute: CronsRoute,
+  McpRoute: McpRoute,
   SystemRoute: SystemRoute,
   WorkflowsRoute: WorkflowsRoute,
 }
