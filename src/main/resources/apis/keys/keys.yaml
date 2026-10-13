@@ -1,0 +1,5 @@
+kind: 'API'
+title: 'Keys API'
+allow:
+  - 'role:com.enonic.app.grieg.mcp'
+  - 'role:system.admin'

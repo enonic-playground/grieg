@@ -7,12 +7,12 @@ import { randomToken, sha256Hex } from './key-crypto';
 import { ensureAdminFolder, getConnection, runInRepo } from './repo';
 
 // Membership in this role is what entitles a user to hold an MCP key.
-export const MCP_ROLE = 'role:com.enonic.app.grieg.mcp';
+export const MCP_ROLE_NAME = 'com.enonic.app.grieg.mcp';
+export const MCP_ROLE = `role:${MCP_ROLE_NAME}`;
 
 export const KEY_PREFIX = 'grieg_';
 export const KEYS_PATH = '/mcp/keys';
 
-const ROLE_NAME = 'com.enonic.app.grieg.mcp';
 const KEY_TTL_MS = 90 * 24 * 60 * 60 * 1000;
 const TOUCH_INTERVAL_MS = 60 * 60 * 1000;
 const MAX_KEYS = 10_000;
@@ -67,7 +67,7 @@ function ensureRole(): void {
   if (getPrincipal(MCP_ROLE) != null) return;
   try {
     createRole({
-      name: ROLE_NAME,
+      name: MCP_ROLE_NAME,
       displayName: 'Grieg MCP',
       description: 'May hold a personal Grieg MCP key.',
     });

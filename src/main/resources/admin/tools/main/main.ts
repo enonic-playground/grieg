@@ -1,10 +1,12 @@
 import { render } from '/lib/mustache';
 import { extensionUrl, getToolUrl } from '/lib/xp/admin';
-import { getUser } from '/lib/xp/auth';
+import { getUser, hasRole } from '/lib/xp/auth';
 import { getPhrases } from '/lib/xp/i18n';
 import { apiUrl, assetUrl } from '/lib/xp/portal';
 
 import type { Request, Response } from '@enonic-types/core';
+
+import { MCP_ROLE_NAME } from '../../../lib/keys';
 
 const PHRASE_BUNDLE = 'i18n/app';
 const DEFAULT_LOCALE = 'en';
@@ -17,8 +19,14 @@ type GriegConfig = {
     system: string;
     workflows: string;
     crons: string;
+    keys: string;
   };
   launcherUri: string;
+  // Cosmetic: lets the client hide routes. Every API checks access itself.
+  access: {
+    admin: boolean;
+    mcp: boolean;
+  };
   user: {
     key: string;
     displayName: string;
@@ -40,11 +48,16 @@ function buildConfig(req: Request): GriegConfig {
       system: apiUrl({ api: 'system', type: 'server' }),
       workflows: apiUrl({ api: 'workflows', type: 'server' }),
       crons: apiUrl({ api: 'crons', type: 'server' }),
+      keys: apiUrl({ api: 'keys', type: 'server' }),
     },
     launcherUri: extensionUrl({
       application: 'com.enonic.xp.app.main',
       extension: 'launcher',
     }),
+    access: {
+      admin: hasRole('system.admin'),
+      mcp: hasRole(MCP_ROLE_NAME),
+    },
     user: currentUser
       ? {
           key: currentUser.key,

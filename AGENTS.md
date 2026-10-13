@@ -1,9 +1,9 @@
 # grieg
 
 Enonic XP application (`com.enonic.app.grieg`) that orchestrates AI integrations, scheduled jobs
-and workflows. It has an admin tool (`admin/tools/main/`), four server APIs (`system`,
-`workflows` and `crons`, all admin-only, plus the public, token-gated `mcp`), and no site
-components.
+and workflows. It has an admin tool (`admin/tools/main/`), five server APIs (`system`,
+`workflows` and `crons`, all admin-only, `keys` for MCP role members and admins, plus the public,
+token-gated `mcp`), and no site components.
 
 This is the only agent instruction file. Do not add a `CLAUDE.md`: Claude Code reads `AGENTS.md`
 only when no `CLAUDE.md` exists, so adding one would hide everything here.
@@ -73,6 +73,9 @@ phrases), which the React bundle reads at boot.
   One key per owner, 90 days, immutable except a best-effort hourly `lastUsed`. `main.ts`
   bootstraps `role:com.enonic.app.grieg.mcp`, the role that entitles a user to hold a key.
   `lib/key-crypto.ts` wraps the JVM crypto behind `Java.type`, and tests mock it.
+- **Keys API** (`apis/keys`) acts on the caller's own key, the owner taken from `getUser()` and
+  never from the request, and refuses callers without the MCP role, admins included. Only
+  `GET ?all=true` and `DELETE ?owner=` are admin paths. `POST` returns the plaintext once.
 - **Scheduling** uses core `lib-scheduler`, not the community `lib-cron`, because scheduler jobs
   are persisted and fire once per cluster. `apis/crons` only reads jobs and toggles `enabled`.
   Creating jobs needs a task descriptor, which arrives with the workflow runner.
@@ -114,6 +117,9 @@ XP 8 replaced XML descriptors with YAML. Older XP docs show XML; ignore them.
   for `apis/*/*.yaml`, and `AdminTool` plus `title` (not `displayName`) for
   `admin/tools/main/main.yaml`.
 - Admin tools use the XP 8 `admin:extension` API, not `admin:widget`.
+- The admin tool admits `role:com.enonic.app.grieg.mcp` as well as admins, so every API it lists
+  must declare its own `allow` and check access in its handlers. `src/test/apis/descriptors.test.ts`
+  fails on an API descriptor without one.
 
 ## Adding an XP library
 

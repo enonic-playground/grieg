@@ -4,7 +4,7 @@ import appProperties from '../src/main/resources/i18n/app.properties?raw';
 import '../src/main/resources/assets/styles/main.css';
 
 const CONFIG_ELEMENT_ID = 'grieg-config';
-const API_NAMES = ['system', 'workflows', 'crons'] as const;
+const API_NAMES = ['system', 'workflows', 'crons', 'keys'] as const;
 
 function parseProperties(content: string): Record<string, string> {
   const phrases: Record<string, string> = {};
@@ -32,6 +32,7 @@ const config: GriegConfig = {
   toolUri: '/',
   apiUris: buildApiUris(),
   launcherUri: '#',
+  access: { admin: true, mcp: true },
   user: { key: 'user:system:su', displayName: 'Dev' },
   locale: 'en',
   phrases: parseProperties(appProperties),

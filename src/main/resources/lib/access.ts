@@ -4,6 +4,7 @@
 import type { McpConfig, ToolsConfig } from './config';
 
 import { safeEqual } from './mcp';
+import { redactKeys } from './text';
 
 const BEARER_PREFIX = 'Bearer ';
 // Bearers with this prefix are per-user keys and never fall back to the shared token.
@@ -28,7 +29,7 @@ export type KeyResolution = { login: string; idProvider: string } | { reason: st
 
 export type Rejection =
   | { status: 401; reason: string }
-  | { status: 403; reason: string; message: string };
+  | { status: 403 | 503; reason: string; message: string };
 
 export type Access = { config: ToolsConfig } | { rejection: Rejection };
 
@@ -130,7 +131,18 @@ export function checkAccess(request: AccessRequest, config: McpConfig): Access {
   const bearer = header.slice(BEARER_PREFIX.length);
 
   if (bearer.startsWith(KEY_PREFIX)) {
-    const resolved = request.resolveKey(bearer);
+    let resolved: KeyResolution;
+    try {
+      resolved = request.resolveKey(bearer);
+    } catch (e) {
+      return {
+        rejection: {
+          status: 503,
+          message: 'Key lookup failed, try again later',
+          reason: `MCP key lookup failed: ${redactKeys(String(e))}`,
+        },
+      };
+    }
     if ('reason' in resolved) return unauthorized(resolved.reason);
     const { login, idProvider } = resolved;
     return { config: { ...config, user: login, idProvider, credential: 'key' } };

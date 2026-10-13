@@ -11,8 +11,14 @@ export type GriegConfig = {
     system: string;
     workflows: string;
     crons: string;
+    keys: string;
   };
   launcherUri: string;
+  // Cosmetic: lets the client hide routes. Every API checks access itself.
+  access: {
+    admin: boolean;
+    mcp: boolean;
+  };
   user: UserConfig | null;
   locale: string;
   phrases: Record<string, string>;

@@ -22,9 +22,9 @@ function toResponse({ status, body }: HttpReply): Response {
 // only reaches the log.
 function deny(req: Request, rejection: Rejection): Response {
   log.warning(`MCP request from ${req.remoteAddress} rejected: ${rejection.reason}`);
-  if (rejection.status === 403) {
+  if (rejection.status !== 401) {
     return toResponse({
-      status: 403,
+      status: rejection.status,
       body: { jsonrpc: '2.0', id: null, error: { code: -32_600, message: rejection.message } },
     });
   }
