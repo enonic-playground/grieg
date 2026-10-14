@@ -1,0 +1,15 @@
+kind: 'Task'
+description: 'Run a grieg workflow'
+form:
+  - type: 'TextLine'
+    name: 'workflowId'
+    label: 'Workflow id'
+    occurrences:
+      min: 1
+      max: 1
+  - type: 'TextLine'
+    name: 'runId'
+    label: 'Run id, set by the workflows API for a manual run'
+    occurrences:
+      min: 0
+      max: 1

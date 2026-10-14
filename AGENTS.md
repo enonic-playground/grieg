@@ -3,7 +3,7 @@
 Enonic XP application (`com.enonic.app.grieg`) that orchestrates AI integrations, scheduled jobs
 and workflows. It has an admin tool (`admin/tools/main/`), five server APIs (`system`,
 `workflows` and `crons`, all admin-only, `keys` for MCP role members and admins, plus the public,
-token-gated `mcp`), and no site components.
+token-gated `mcp`), one task (`run-workflow`), and no site components.
 
 This is the only agent instruction file. Do not add a `CLAUDE.md`: Claude Code reads `AGENTS.md`
 only when no `CLAUDE.md` exists, so adding one would hide everything here.
@@ -82,6 +82,20 @@ phrases), which the React bundle reads at boot.
   lib-http-client and throws only short messages that are safe to store. `lib/vertex-auth.ts`
   reaches google-auth-library through `Java.type`, holds one cached credentials object, and is
   mocked in tests. Never log or throw a prompt, an output, a token or a response body.
+- **Runs.** The task `com.enonic.app.grieg:run-workflow` (`tasks/run-workflow/`) runs a
+  workflow's `llm` steps through `generate()` and records each run as a child node,
+  `/workflows/<name>/runs/<id>`, through `lib/runs.ts`; `lib/steps.ts` validates steps and fills
+  `{{steps.<id>.output}}` placeholders, and stays free of `/lib/xp/*` imports. The task checks
+  `role:system.admin` on its inherited context as its first statement, before anything reaches
+  `runInRepo`, and stores only messages from `renderPrompt()` and `generate()`. The API's
+  `POST ?action=run` creates the run node, submits the task with `{ workflowId, runId }` and
+  stamps the run with the task id; a task without `runId` (a schedule) creates its own. Task
+  config is not validated against the form, so the task adopts a `runId` only when it names a
+  `running` run of that workflow that no other task has claimed. A `running` run counts as going
+  only while lib-task reports its task live (or, unstamped, for its first minute); the skip guard
+  and the startup `sweepInterrupted()` fail the rest as `interrupted`, so a restart on one
+  cluster node leaves another node's runs alone. `getById()` accepts only direct children of
+  `/workflows`, since run nodes live below it.
 - **Scheduling** uses core `lib-scheduler`, not the community `lib-cron`, because scheduler jobs
   are persisted and fire once per cluster. `apis/crons` only reads jobs and toggles `enabled`.
   Creating jobs needs a task descriptor, which arrives with the workflow runner.

@@ -89,6 +89,12 @@ A request that carries an `Origin` header is accepted only when that origin is l
 
 XP picks up changes to this file without a restart.
 
+## Workflows
+
+A workflow is a list of `llm` steps, `{ id, type: 'llm', config: { prompt, model? } }`, run in order on Vertex AI. A prompt can use an earlier step's output through `{{steps.<id>.output}}`, replaced as plain text; the last step's output is the run's output. Creating or updating a workflow through the Workflows API refuses steps of another type, without a prompt, with a repeated id, or referencing a step that is not earlier, with a `400 INVALID_STEPS` that names the step.
+
+`POST ?id=<id>&action=run` starts a run as the calling admin and returns `{ runId, taskId, status }` once the run record exists; `GET ?id=<id>&runs=true` lists the workflow's runs, newest first. A run records `status` (`running`, `done`, `failed` or `skipped`), `trigger` (`manual` or `schedule`), `user`, `taskId`, `startedAt`, `finishedAt`, each step's `output`, `error` and `ms`, and the run's `output` and `error`. Runs only run as an administrator: a run whose user is not one, or resolves to anonymous, is recorded as `failed`. Starting a run while another run of the same workflow is going records it as `skipped`; the check is not atomic, so two runs started in the same instant can both go ahead. Outputs are stored up to 32 KB, and the last 20 runs of each workflow are kept. A run that no live task owns any more, such as one left `running` by a restart, is marked `failed` with the error `interrupted`, at startup or when the next run of that workflow starts. Runs are stored under the workflow, so deleting the workflow deletes them, and only administrators can read them. The log carries a run's status, latency and id, never a prompt or an output.
+
 ## MCP
 
 The endpoint is `http://<host>:8080/api/com.enonic.app.grieg:mcp`, a stateless MCP server over HTTP POST. It speaks protocol `2026-07-28` (`server/discover` plus per-request `_meta`) and the legacy `initialize` handshake (`2025-11-25`, `2025-06-18`, `2025-03-26`) from the same URL.

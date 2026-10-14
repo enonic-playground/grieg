@@ -37,9 +37,9 @@ type WorkflowData = {
   modifiedAt?: string;
 };
 
-function toArray(steps: WorkflowStep[] | WorkflowStep | undefined): WorkflowStep[] {
-  if (steps == null) return [];
-  return Array.isArray(steps) ? steps : [steps];
+export function toArray<T>(value: T[] | T | null | undefined): T[] {
+  if (value == null) return [];
+  return Array.isArray(value) ? value : [value];
 }
 
 function toWorkflow(node: Node<WorkflowData>): Workflow {
@@ -66,11 +66,10 @@ export function initWorkflows(): void {
     const connection = getConnection();
     const children = connection.query({
       count: -1,
-      query: { like: { field: '_path', value: `${WORKFLOWS_PATH}/*` } },
+      query: { term: { field: '_parentPath', value: WORKFLOWS_PATH } },
     });
     if (children.hits.length === 0) return;
-    const found = connection.get(children.hits.map((hit) => hit.id));
-    const nodes = found == null ? [] : Array.isArray(found) ? found : [found];
+    const nodes = toArray<Node>(connection.get(children.hits.map((hit) => hit.id)));
     if (nodes.every((node) => isAdminOnly(node._permissions))) return;
 
     connection.applyPermissions({ key: WORKFLOWS_PATH, permissions: ADMIN_ONLY, scope: 'TREE' });
@@ -97,9 +96,15 @@ export function list(): Workflow[] {
   });
 }
 
+// Run nodes live below `/workflows` too, so an id is a workflow only when it names a direct child.
+function getWorkflowNode(id: string): Node<WorkflowData> | undefined {
+  const node = getConnection().get<WorkflowData>(id);
+  return node?._parentPath === WORKFLOWS_PATH ? node : undefined;
+}
+
 export function getById(id: string): Workflow | undefined {
   return runInRepo(() => {
-    const node = getConnection().get<WorkflowData>(id);
+    const node = getWorkflowNode(id);
     return node == null ? undefined : toWorkflow(node);
   });
 }
@@ -123,10 +128,9 @@ export function createWorkflow(input: WorkflowInput): Workflow {
 
 export function updateWorkflow(id: string, input: Partial<WorkflowInput>): Workflow | undefined {
   return runInRepo(() => {
-    const connection = getConnection();
-    if (!connection.exists(id)) return undefined;
+    if (getWorkflowNode(id) == null) return undefined;
 
-    const node = connection.update<WorkflowData>({
+    const node = getConnection().update<WorkflowData>({
       key: id,
       editor: (current) => ({
         ...current,
@@ -142,5 +146,5 @@ export function updateWorkflow(id: string, input: Partial<WorkflowInput>): Workf
 }
 
 export function deleteWorkflow(id: string): boolean {
-  return runInRepo(() => getConnection().delete(id).length > 0);
+  return runInRepo(() => getWorkflowNode(id) != null && getConnection().delete(id).length > 0);
 }

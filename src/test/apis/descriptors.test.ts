@@ -49,6 +49,23 @@ describe('API descriptors', () => {
   });
 });
 
+describe('task descriptors', () => {
+  const TASKS = path.join(RESOURCES, 'tasks');
+
+  it('should declare every task as a YAML `Task` with a controller beside it', () => {
+    const names = readdirSync(TASKS);
+    expect(names).toContain('run-workflow');
+    for (const name of names) {
+      const text = readFileSync(path.join(TASKS, name, `${name}.yaml`), 'utf8');
+      expect(text, name).toMatch(/^kind: 'Task'$/m);
+      expect(readdirSync(path.join(TASKS, name)).toSorted(), name).toEqual([
+        `${name}.ts`,
+        `${name}.yaml`,
+      ]);
+    }
+  });
+});
+
 describe('admin-only APIs', () => {
   beforeEach(() => {
     vi.resetAllMocks();
@@ -58,7 +75,11 @@ describe('admin-only APIs', () => {
   const handlers: Record<string, (req: Request) => Response> = {
     'system GET': system.get,
     'workflows GET': workflows.get,
+    'workflows GET ?runs=true': (req) =>
+      workflows.get({ ...req, params: { ...req.params, runs: 'true' } }),
     'workflows POST': workflows.post,
+    'workflows POST ?action=run': (req) =>
+      workflows.post({ ...req, params: { ...req.params, action: 'run' } }),
     'workflows PUT': workflows.put,
     'workflows DELETE': workflows.delete,
     'crons GET': crons.get,
