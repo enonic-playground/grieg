@@ -5,6 +5,7 @@ import { list as listRepos } from '/lib/xp/repo';
 import type { ToolsConfig } from './config';
 import type { Tool, ToolOutcome } from './mcp';
 
+import { auditWrite } from './audit';
 import { MAX_COUNT } from './content-shape';
 import {
   defaultBranch,
@@ -443,6 +444,12 @@ export function createNodeTools(config: ToolsConfig): Tool[] {
           _name: name,
           _inheritsPermissions: true,
         });
+        auditWrite(
+          config,
+          'node_create',
+          { repository: parsed.value.repo, branch: parsed.value.branch, id: created._id },
+          ['_name', ...Object.keys(data)],
+        );
         return ok(toNodeSummary(created));
       });
     },
@@ -548,6 +555,12 @@ export function createNodeTools(config: ToolsConfig): Tool[] {
           throw e;
         }
 
+        auditWrite(
+          config,
+          'node_update',
+          { repository: parsed.value.repo, branch: parsed.value.branch, id: updated._id },
+          plan.changed,
+        );
         return ok({ node: toNodeSummary(updated), changed: plan.changed, previous: plan.previous });
       });
     },

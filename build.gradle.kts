@@ -25,6 +25,7 @@ dependencies {
     implementation("com.enonic.xp:portal-api:${xpVersion}")
     include(libs.kotlin.stdlib)
     include("com.enonic.xp:lib-admin:${xpVersion}")
+    include("com.enonic.xp:lib-auditlog:${xpVersion}")
     include("com.enonic.xp:lib-portal:${xpVersion}")
     include("com.enonic.xp:lib-node:${xpVersion}")
     include("com.enonic.xp:lib-repo:${xpVersion}")

@@ -4,6 +4,7 @@ import type { ToolsConfig } from './config';
 import type { Tool, ToolOutcome } from './mcp';
 import type { Content } from '@enonic-types/core';
 
+import { auditWrite } from './audit';
 import {
   buildSearchQuery,
   checkOccurrences,
@@ -48,12 +49,16 @@ function errorMessage(e: unknown): string | undefined {
   return e == null ? undefined : String(e);
 }
 
+function contentRepo(config: ToolsConfig): string {
+  return `${CONTENT_REPO_PREFIX}${config.project}`;
+}
+
 function asConfiguredUser(
   config: ToolsConfig,
   callback: () => ToolOutcome,
   branch = config.branch,
 ): ToolOutcome {
-  return runAs(config, { repository: `${CONTENT_REPO_PREFIX}${config.project}`, branch }, callback);
+  return runAs(config, { repository: contentRepo(config), branch }, callback);
 }
 
 type ParentBuckets = { parents?: { buckets?: { key: string }[] } };
@@ -444,6 +449,17 @@ export function createContentTools(config: ToolsConfig, editBase: string): Tool[
           } catch (e) {
             return fail(createRefusal(contentType, errorMessage(e)));
           }
+          auditWrite(
+            config,
+            'content_create',
+            { repository: contentRepo(config), branch: DRAFT, id: created._id },
+            [
+              'displayName',
+              ...(name == null ? [] : ['name']),
+              ...(language == null ? [] : ['language']),
+              ...Object.keys(data).map((field) => `data.${field}`),
+            ],
+          );
           return ok(summarize([created], editBase)[0]);
         },
         DRAFT,
@@ -557,6 +573,12 @@ export function createContentTools(config: ToolsConfig, editBase: string): Tool[
         if (updated == null) {
           return notFound(key);
         }
+        auditWrite(
+          config,
+          'content_update',
+          { repository: contentRepo(config), branch: config.branch, id: updated._id },
+          plan.changed,
+        );
         return ok({
           summary: summarize([updated], editBase)[0],
           changed: plan.changed,
