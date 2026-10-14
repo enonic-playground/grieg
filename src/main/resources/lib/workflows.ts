@@ -1,6 +1,6 @@
 import type { Node } from '/lib/xp/node';
 
-import { getConnection, runInRepo } from './repo';
+import { ADMIN_ONLY, ensureAdminFolder, getConnection, isAdminOnly, runInRepo } from './repo';
 
 export const WORKFLOWS_PATH = '/workflows';
 
@@ -55,10 +55,27 @@ function toWorkflow(node: Node<WorkflowData>): Workflow {
 }
 
 function ensureParent(): void {
-  const connection = getConnection();
-  if (!connection.exists(WORKFLOWS_PATH)) {
-    connection.create({ _name: 'workflows', _parentPath: '/' });
-  }
+  ensureAdminFolder('/', 'workflows');
+}
+
+// Installs created before the store had an ACL keep the lib-node default on every workflow,
+// and `ensureAdminFolder` only resets the subtree when the folder itself differs.
+export function initWorkflows(): void {
+  runInRepo(() => {
+    ensureParent();
+    const connection = getConnection();
+    const children = connection.query({
+      count: -1,
+      query: { like: { field: '_path', value: `${WORKFLOWS_PATH}/*` } },
+    });
+    if (children.hits.length === 0) return;
+    const found = connection.get(children.hits.map((hit) => hit.id));
+    const nodes = found == null ? [] : Array.isArray(found) ? found : [found];
+    if (nodes.every((node) => isAdminOnly(node._permissions))) return;
+
+    connection.applyPermissions({ key: WORKFLOWS_PATH, permissions: ADMIN_ONLY, scope: 'TREE' });
+    log.info(`Restricted ${WORKFLOWS_PATH} to administrators`);
+  });
 }
 
 export function list(): Workflow[] {
@@ -93,6 +110,7 @@ export function createWorkflow(input: WorkflowInput): Workflow {
     const node = getConnection().create<WorkflowData>({
       _name: input.name,
       _parentPath: WORKFLOWS_PATH,
+      _inheritsPermissions: true,
       displayName: input.displayName ?? input.name,
       description: input.description,
       enabled: input.enabled ?? false,

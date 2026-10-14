@@ -66,6 +66,8 @@ phrases), which the React bundle reads at boot.
 - **Storage.** Workflows are nodes under `/workflows` in the app's own repository
   (`com.enonic.app.grieg`), created on startup by `main.ts`. All store access goes through
   `lib/repo.ts`, which runs in an admin context: callers are authorized before they reach it.
+  `/workflows` carries `ADMIN_ONLY` and its children inherit it, so the MCP node tools cannot
+  read the store as a non-admin user; `initWorkflows()` re-applies it on startup.
 - **MCP keys** live under `/mcp/keys` in the same repository (`lib/keys.ts`). `/mcp` and
   `/mcp/keys` carry an admin-only ACL (`ADMIN_ONLY` in `lib/repo.ts`), because the node tools
   can reach this repository as a non-admin user. A key node is named by the SHA-256 hex digest

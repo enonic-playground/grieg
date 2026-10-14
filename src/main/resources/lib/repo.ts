@@ -51,6 +51,10 @@ function aclKey(entries: AccessControlEntry[]): string {
     .join('|');
 }
 
+export function isAdminOnly(entries: AccessControlEntry[] | undefined): boolean {
+  return aclKey(entries ?? []) === aclKey(ADMIN_ONLY);
+}
+
 // Call inside `runInRepo`. Tolerates another cluster node creating the folder first, and
 // resets a folder that already existed with any other ACL, its descendants included.
 export function ensureAdminFolder(parentPath: string, name: string): void {
@@ -64,7 +68,7 @@ export function ensureAdminFolder(parentPath: string, name: string): void {
     }
   }
   const node = connection.get(path);
-  if (node != null && aclKey(node._permissions ?? []) !== aclKey(ADMIN_ONLY)) {
+  if (node != null && !isAdminOnly(node._permissions)) {
     connection.applyPermissions({ key: path, permissions: ADMIN_ONLY, scope: 'TREE' });
     log.warning(`Reset ${path} in ${REPO_ID} and its descendants to admin-only permissions`);
   }
