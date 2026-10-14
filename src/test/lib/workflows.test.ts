@@ -5,8 +5,11 @@ import { ADMIN_ONLY } from '../../main/resources/lib/repo';
 import {
   WORKFLOWS_PATH,
   createWorkflow,
+  deleteWorkflow,
+  getById,
   initWorkflows,
   list,
+  updateWorkflow,
 } from '../../main/resources/lib/workflows';
 
 const connect = vi.mocked(nodeLib.connect);
@@ -17,6 +20,8 @@ const connection = {
   get: vi.fn(),
   query: vi.fn(),
   applyPermissions: vi.fn(),
+  update: vi.fn(),
+  delete: vi.fn(),
 };
 
 const LIB_NODE_DEFAULT = [
@@ -138,16 +143,41 @@ describe('workflow store ACL', () => {
     expect(connection.applyPermissions).not.toHaveBeenCalled();
   });
 
-  it('should query the subtree below the parent', () => {
+  it('should query only the workflows, not the runs below them', () => {
     withSubtree(STORED_ADMIN_ONLY, [STORED_ADMIN_ONLY]);
 
     initWorkflows();
 
     expect(connection.query).toHaveBeenCalledWith(
       expect.objectContaining({
-        query: { like: { field: '_path', value: `${WORKFLOWS_PATH}/*` } },
+        query: { term: { field: '_parentPath', value: WORKFLOWS_PATH } },
       }),
     );
     expect(connection.get).toHaveBeenCalledWith(['c0']);
+  });
+});
+
+describe('workflow lookup', () => {
+  const RUN_NODE = { _id: 'run-1', _name: 'run-1', _parentPath: '/workflows/nightly/runs' };
+  const WORKFLOW_NODE = { _id: 'w1', _name: 'nightly', _parentPath: WORKFLOWS_PATH };
+
+  it('should not treat a run node as a workflow', () => {
+    connection.get.mockReturnValue(RUN_NODE);
+
+    expect(getById('run-1')).toBeUndefined();
+    expect(updateWorkflow('run-1', { enabled: true })).toBeUndefined();
+    expect(deleteWorkflow('run-1')).toBe(false);
+    expect(connection.update).not.toHaveBeenCalled();
+    expect(connection.delete).not.toHaveBeenCalled();
+  });
+
+  it('should find, update and delete a workflow by id', () => {
+    connection.get.mockReturnValue(WORKFLOW_NODE);
+    connection.update.mockReturnValue(WORKFLOW_NODE);
+    connection.delete.mockReturnValue(['w1']);
+
+    expect(getById('w1')).toMatchObject({ id: 'w1', name: 'nightly' });
+    expect(updateWorkflow('w1', { enabled: true })).toMatchObject({ id: 'w1' });
+    expect(deleteWorkflow('w1')).toBe(true);
   });
 });

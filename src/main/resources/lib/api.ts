@@ -14,11 +14,16 @@ export function jsonResponse<T>(data: T, status = 200): Response {
   };
 }
 
-export function errorResponse(status: number, message: string, code?: string): Response {
+export function errorResponse(
+  status: number,
+  message: string,
+  code?: string,
+  details?: Record<string, unknown>,
+): Response {
   return {
     status,
     contentType: 'application/json',
-    body: JSON.stringify({ status, message, code }),
+    body: JSON.stringify({ ...details, status, message, code }),
   };
 }
 
