@@ -2,10 +2,11 @@ import { get as getContext, run } from '/lib/xp/context';
 
 import type { ToolsConfig } from './config';
 import type { ToolOutcome } from './mcp';
+import type { UserKey } from '@enonic-types/core';
 
 export type RunTarget = { repository: string; branch: string };
 
-export function userKey(config: ToolsConfig): string {
+export function userKey(config: ToolsConfig): UserKey {
   return `user:${config.idProvider}:${config.user}`;
 }
 

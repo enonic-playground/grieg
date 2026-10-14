@@ -96,6 +96,8 @@ The node tools run as the acting user too, so XP's node permissions decide what 
 
 `content_create` always writes to the `draft` branch, whatever `mcp.branch` says, with `requireValid` on and the workflow state set to in-progress, so nothing an agent creates goes live until someone publishes it. XP reports only the first validation error, and none for a missing required field, so the tool first checks the data against the content type's occurrence rules and names the offending paths, the first ten per refusal plus a count of the rest. `content_type_get` expands nested item sets and option sets four levels deep; a set on the fifth level is listed, marked `capped`, without its fields.
 
+Each successful write by `content_create`, `content_update`, `node_create` or `node_update` also leaves one entry in XP's audit log, besides the entries XP writes for the change itself. The entry has type `grieg.mcp.<tool>`, the acting user as `user`, the written item as `<repository>:<branch>:<id>` in `objects` (the form XP uses for its own content entries, so a search by object finds both), and `tool` plus the written `fields` in `data`. A refused, failed or no-op call writes none, and a failed audit write is logged without failing the call.
+
 Summaries carry an `editUrl` into Content Studio. On the `draft` branch, edits need publishing in Content Studio to go live, and each edit resets the item's workflow state to in-progress.
 
 ### Authentication

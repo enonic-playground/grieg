@@ -1,3 +1,4 @@
+import * as auditLib from '/lib/xp/auditlog';
 import * as contextLib from '/lib/xp/context';
 import * as nodeLib from '/lib/xp/node';
 import * as repoLib from '/lib/xp/repo';
@@ -10,6 +11,7 @@ import { createNodeTools } from '../../main/resources/lib/node-tools';
 
 type JsonObject = Record<string, unknown>;
 
+const auditLog = vi.mocked(auditLib.log);
 const connect = vi.mocked(nodeLib.connect);
 const listRepos = vi.mocked(repoLib.list);
 const run = vi.mocked(contextLib.run);
@@ -514,6 +516,147 @@ describe('node_update', () => {
 
     expect(connection.update).not.toHaveBeenCalled();
     expect(result).toMatchObject({ changed: [], previous: {} });
+  });
+});
+
+describe('audit log', () => {
+  it('should write one entry after node_create, naming the node and its properties', () => {
+    connection.create.mockImplementation((params) => ({ ...stored({ _id: 'new' }), ...params }));
+    getContext.mockReturnValue({
+      attributes: {},
+      authInfo: { user: { login: 'alice', idProvider: 'system' } as never },
+    });
+
+    value(
+      tool('node_create', { ...CONFIG, credential: 'key', user: 'alice' }).handler({
+        repo: 'scratch',
+        branch: 'draft',
+        parentPath: '/workflows',
+        name: 'item',
+        data: { title: 'Hello', tags: ['a'] },
+      }),
+    );
+
+    expect(auditLog).toHaveBeenCalledExactlyOnceWith({
+      type: 'grieg.mcp.node_create',
+      user: 'user:system:alice',
+      objects: ['scratch:draft:new'],
+      data: { tool: 'node_create', fields: ['_name', 'title', 'tags'] },
+    });
+  });
+
+  it('should write one entry after node_update with the changed paths', () => {
+    connection.get.mockReturnValue(stored({ old: 1 }));
+    connection.update.mockImplementation(({ editor }) => editor(stored({ old: 1 })));
+
+    value(
+      tool('node_update').handler({
+        repo: 'scratch',
+        key: '/workflows/item',
+        set: { title: 'Hi' },
+        unset: ['old'],
+      }),
+    );
+
+    expect(auditLog).toHaveBeenCalledExactlyOnceWith({
+      type: 'grieg.mcp.node_update',
+      user: 'user:system:editor',
+      objects: ['scratch:master:n1'],
+      data: { tool: 'node_update', fields: ['title', 'old'] },
+    });
+  });
+
+  class Link {}
+
+  it.each([
+    {
+      path: 'a stale expectedVersionKey',
+      expected: 'is at version v2',
+      call: () => {
+        connection.get.mockReturnValue(stored({ _versionKey: 'v2' }));
+        return tool('node_update').handler({
+          repo: 'scratch',
+          key: 'n1',
+          set: { title: 'Hi' },
+          expectedVersionKey: 'v1',
+        });
+      },
+    },
+    {
+      path: 'a missing node',
+      expected: 'No node at `n1`',
+      call: () => {
+        connection.get.mockReturnValue(null);
+        return tool('node_update').handler({ repo: 'scratch', key: 'n1', set: { title: 'Hi' } });
+      },
+    },
+    {
+      path: 'a refused typed value',
+      expected: 'Nothing was written',
+      call: () => {
+        vi.stubGlobal('Java', { type: () => class {} });
+        connection.get.mockReturnValue(stored());
+        connection.update.mockImplementation(({ editor }) => editor(stored({ title: new Link() })));
+        return tool('node_update').handler({ repo: 'scratch', key: 'n1', set: { title: 'Hi' } });
+      },
+    },
+    {
+      path: 'an XP update error',
+      expected: 'failed: version conflict',
+      call: () => {
+        connection.get.mockReturnValue(stored());
+        connection.update.mockImplementation(() => {
+          throw new Error('version conflict');
+        });
+        return tool('node_update').handler({ repo: 'scratch', key: 'n1', set: { title: 'Hi' } });
+      },
+    },
+    {
+      path: 'an XP create error',
+      expected: 'failed: Node already exists',
+      call: () => {
+        connection.create.mockImplementation(() => {
+          throw new Error('Node already exists');
+        });
+        return tool('node_create').handler({ repo: 'scratch', parentPath: '/', name: 'n' });
+      },
+    },
+    {
+      path: 'a content repository',
+      expected: 'Use content_update',
+      call: () =>
+        tool('node_create').handler({ repo: 'com.enonic.cms.default', parentPath: '/', name: 'n' }),
+    },
+  ])('should write nothing for $path', ({ expected, call }) => {
+    expect(message(call())).toContain(expected);
+    expect(auditLog).not.toHaveBeenCalled();
+  });
+
+  it('should write nothing when node_update changes nothing', () => {
+    connection.get.mockReturnValue(stored());
+
+    const result = value(
+      tool('node_update').handler({ repo: 'scratch', key: 'n1', set: { title: 'Hello' } }),
+    );
+
+    expect(result).toMatchObject({ changed: [] });
+    expect(auditLog).not.toHaveBeenCalled();
+  });
+
+  it('should keep the result of a landed write when the audit entry fails', () => {
+    connection.create.mockImplementation((params) => ({ ...stored(), ...params }));
+    auditLog.mockImplementationOnce(() => {
+      throw new Error('audit repo down');
+    });
+
+    const result = value(
+      tool('node_create').handler({ repo: 'scratch', parentPath: '/', name: 'item' }),
+    );
+
+    expect(result).toMatchObject({ _id: 'n1' });
+    expect(log.warning).toHaveBeenCalledWith(
+      expect.stringContaining('could not write the audit log entry for node_create'),
+    );
   });
 });
 

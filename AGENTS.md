@@ -104,6 +104,8 @@ phrases), which the React bundle reads at boot.
   - lib-repo `list()` is admin-only, so `node_repos` lists as admin and keeps only branches
     where a `count: 0` query as the user finds a node. Content repositories keep project roles
     off the root node, and `exists()` runs as admin, so neither proves access.
+  - Every write tool calls `auditWrite()` (`lib/audit.ts`) only after the write lands, inside
+    the acting user's context. A failed audit write is logged, never returned as a tool error.
   - `node_create` must pass `_inheritsPermissions: true`: without it lib-node grants admins
     everything and `role:system.everyone` READ.
 

@@ -67,6 +67,9 @@ importers:
       '@enonic-types/lib-admin':
         specifier: 8.0.3
         version: 8.0.3
+      '@enonic-types/lib-auditlog':
+        specifier: 8.0.3
+        version: 8.0.3
       '@enonic-types/lib-auth':
         specifier: 8.0.3
         version: 8.0.3
@@ -282,6 +285,9 @@ packages:
 
   '@enonic-types/lib-admin@8.0.3':
     resolution: {integrity: sha512-JIwcd1QgYJvtn1CvbqY9vEX8u8GoucQKGfJOmeUl42wKvCpFG+tVP1Bh8C9sQq3pMve+TfQJs+/LQ5UykK1biA==}
+
+  '@enonic-types/lib-auditlog@8.0.3':
+    resolution: {integrity: sha512-KbGWXvjZqTmfjnqlUGp270LmcoRFZY4Xehc9Aq2cELk0YArCaXGTeerOM47twvS3QhOxDT4oMYQNKCOcH6bxsg==}
 
   '@enonic-types/lib-auth@8.0.3':
     resolution: {integrity: sha512-4LY2TB1Y6LA5MarAhd+bU0t7TOGR2F60sulHr6ihkJ2l/eBX4orPz3GsqBsCeaKYBSR++MuDRpXDtfKz7Rm9qg==}
@@ -2267,6 +2273,10 @@ snapshots:
       '@enonic-types/core': 8.0.3
 
   '@enonic-types/lib-admin@8.0.3':
+    dependencies:
+      '@enonic-types/core': 8.0.3
+
+  '@enonic-types/lib-auditlog@8.0.3':
     dependencies:
       '@enonic-types/core': 8.0.3
 

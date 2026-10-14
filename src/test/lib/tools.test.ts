@@ -1,3 +1,4 @@
+import * as auditLib from '/lib/xp/auditlog';
 import * as contentLib from '/lib/xp/content';
 import * as contextLib from '/lib/xp/context';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -11,6 +12,7 @@ import { buildSearchQuery } from '../../main/resources/lib/content-shape';
 import { SUBTREE_BUDGET } from '../../main/resources/lib/shape';
 import { createContentTools, serverInstructions } from '../../main/resources/lib/tools';
 
+const auditLog = vi.mocked(auditLib.log);
 const get = vi.mocked(contentLib.get);
 const query = vi.mocked(contentLib.query);
 const update = vi.mocked(contentLib.update);
@@ -580,5 +582,137 @@ describe('content_create', () => {
       idempotentHint: false,
       openWorldHint: false,
     });
+  });
+});
+
+describe('audit log', () => {
+  const args = {
+    parentPath: '/site',
+    contentType: 'my.app:article',
+    displayName: 'News',
+    data: { title: 'News' },
+  };
+
+  it('should write one entry after content_create, on draft whatever the configured branch', () => {
+    getType.mockReturnValue(ARTICLE);
+    create.mockReturnValue(item({ _id: 'new' }));
+    actAs('alice');
+
+    value(
+      tool('content_create', {
+        ...CONFIG,
+        branch: 'master',
+        user: 'alice',
+      }).handler({ ...args, name: 'news', language: 'en' }),
+    );
+
+    expect(auditLog).toHaveBeenCalledExactlyOnceWith({
+      type: 'grieg.mcp.content_create',
+      user: 'user:system:alice',
+      objects: ['com.enonic.cms.default:draft:new'],
+      data: {
+        tool: 'content_create',
+        fields: ['displayName', 'name', 'language', 'data.title'],
+      },
+    });
+  });
+
+  it('should list only the fields content_create was given', () => {
+    getType.mockReturnValue(ARTICLE);
+    create.mockReturnValue(item({ _id: 'new' }));
+
+    value(tool('content_create').handler(args));
+
+    expect(auditLog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ fields: ['displayName', 'data.title'] }),
+      }),
+    );
+  });
+
+  it('should write one entry after content_update with the changed fields', () => {
+    get.mockReturnValue(item());
+    update.mockImplementation(({ editor }) => editor(item() as never));
+
+    value(
+      tool('content_update', { ...CONFIG, branch: 'master' }).handler({
+        key: '/site/hello',
+        displayName: 'Hi',
+        data: { title: 'Hello', body: 'Text' },
+      }),
+    );
+
+    expect(auditLog).toHaveBeenCalledExactlyOnceWith({
+      type: 'grieg.mcp.content_update',
+      user: 'user:system:editor',
+      objects: ['com.enonic.cms.default:master:id-1'],
+      data: { tool: 'content_update', fields: ['displayName', 'data.body'] },
+    });
+  });
+
+  it.each([
+    {
+      path: 'a stale expectedModifiedTime',
+      expected: 'Conflict',
+      call: () => {
+        get.mockReturnValue(item());
+        return tool('content_update').handler({
+          key: 'id-1',
+          displayName: 'Hi',
+          expectedModifiedTime: '2025-01-01T00:00:00Z',
+        });
+      },
+    },
+    {
+      path: 'an XP update error',
+      expected: 'XP rejected the update',
+      call: () => {
+        get.mockReturnValue(item());
+        update.mockImplementation(() => {
+          throw new Error('Content is invalid');
+        });
+        return tool('content_update').handler({ key: 'id-1', data: { title: 5 } });
+      },
+    },
+    {
+      path: 'an item that vanished during the update',
+      expected: 'No content at `id-1`',
+      call: () => {
+        get.mockReturnValue(item());
+        update.mockReturnValue(null);
+        return tool('content_update').handler({ key: 'id-1', displayName: 'Hi' });
+      },
+    },
+    {
+      path: 'data that does not fit the content type',
+      expected: 'Nothing was created',
+      call: () => {
+        getType.mockReturnValue(ARTICLE);
+        return tool('content_create').handler({ ...args, data: {} });
+      },
+    },
+    {
+      path: 'an XP create error',
+      expected: 'XP refused to create',
+      call: () => {
+        getType.mockReturnValue(ARTICLE);
+        create.mockImplementation(() => {
+          throw new Error('Invalid value');
+        });
+        return tool('content_create').handler(args);
+      },
+    },
+  ])('should write nothing for $path', ({ expected, call }) => {
+    expect(message(call())).toContain(expected);
+    expect(auditLog).not.toHaveBeenCalled();
+  });
+
+  it('should write nothing when content_update changes nothing', () => {
+    get.mockReturnValue(item());
+
+    const result = value(tool('content_update').handler({ key: 'id-1', displayName: 'Hello' }));
+
+    expect(result).toMatchObject({ changed: [] });
+    expect(auditLog).not.toHaveBeenCalled();
   });
 });
