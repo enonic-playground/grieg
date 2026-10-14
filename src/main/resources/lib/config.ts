@@ -50,3 +50,20 @@ export function getMcpConfig(): McpConfig {
     nodeRepos: list('mcp.nodes.repos'),
   };
 }
+
+const DEFAULT_VERTEX_MODEL = 'gemini-3.1-flash-lite';
+
+export type VertexConfig = {
+  // Unset means Application Default Credentials.
+  credentialsPath?: string;
+  project?: string;
+  model: string;
+};
+
+export function getVertexConfig(): VertexConfig {
+  return {
+    credentialsPath: value('vertex.credentialsPath'),
+    project: value('vertex.project'),
+    model: value('vertex.model') ?? DEFAULT_VERTEX_MODEL,
+  };
+}

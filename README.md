@@ -64,6 +64,22 @@ mcp.readOnly = false
 # Repositories the node tools may use, comma-separated exact ids. Empty means every
 # repository except `system-repo` and `system.*`, which are always denied.
 mcp.nodes.repos =
+
+# Vertex AI (Gemini) for workflow steps, called on the `eu` multi-region endpoint
+# (`aiplatform.eu.rep.googleapis.com`), which keeps requests inside the EU. A 404 reported as
+# "not routed" never reached the Vertex API: check that the project can use that endpoint and
+# that the model is served on `v1`.
+#
+# With `vertex.credentialsPath` unset, grieg uses Application Default Credentials
+# (`GOOGLE_APPLICATION_CREDENTIALS`, gcloud's ADC file, or the metadata server on Google Cloud).
+# Set it to the path of a credentials JSON file on the XP host to use that instead; a replaced
+# file is picked up on the next call. Only the path goes here, never the key itself.
+vertex.credentialsPath =
+# Google Cloud project to bill. Unset falls back to the credentials' project, then the
+# `GOOGLE_CLOUD_PROJECT` environment variable; with none of the three, every call fails.
+vertex.project =
+# Model for steps that do not name one.
+vertex.model = gemini-3.1-flash-lite
 ```
 
 > [!IMPORTANT]
