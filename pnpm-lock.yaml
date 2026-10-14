@@ -79,6 +79,9 @@ importers:
       '@enonic-types/lib-context':
         specifier: 8.0.3
         version: 8.0.3
+      '@enonic-types/lib-http-client':
+        specifier: 4.0.0
+        version: 4.0.0
       '@enonic-types/lib-i18n':
         specifier: 8.0.3
         version: 8.0.3
@@ -297,6 +300,9 @@ packages:
 
   '@enonic-types/lib-context@8.0.3':
     resolution: {integrity: sha512-xm6bUSkK/Yq+9fv0UE3YZ2dLdo4GNIF7TngYLXaDRUcI5uwnDjlKGjwq7a0qPmo9iocy9iZblTDfi3FsKwM1fg==}
+
+  '@enonic-types/lib-http-client@4.0.0':
+    resolution: {integrity: sha512-/hm5LlWdA+vRiKx9TL3gOJk8J962hrhd+dKQdBZN1hnRA++7Mnvj4x3kg2xcYjvxCKW/cIVbNW2pOqNcHQfzVg==}
 
   '@enonic-types/lib-i18n@8.0.3':
     resolution: {integrity: sha512-OGOlolt4/mDrCK1BXa1+rINCJuuWGSWzaodpbCRcJslF0wKcGraOd9Pza0/SWMh+Uz/oVYadsvkSl/C3W8aKiA==}
@@ -2289,6 +2295,10 @@ snapshots:
       '@enonic-types/core': 8.0.3
 
   '@enonic-types/lib-context@8.0.3':
+    dependencies:
+      '@enonic-types/core': 8.0.3
+
+  '@enonic-types/lib-http-client@4.0.0':
     dependencies:
       '@enonic-types/core': 8.0.3
 

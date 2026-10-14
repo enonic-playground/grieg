@@ -36,6 +36,8 @@ dependencies {
     include("com.enonic.xp:lib-task:${xpVersion}")
     include("com.enonic.xp:lib-i18n:${xpVersion}")
     include("com.enonic.lib:lib-mustache:3.0.0")
+    include("com.enonic.lib:lib-http-client:4.0.0")
+    include("com.google.auth:google-auth-library-oauth2-http:1.50.0")
 
     testImplementation(kotlin("test"))
     testImplementation(libs.junit.jupiter)

@@ -78,6 +78,10 @@ phrases), which the React bundle reads at boot.
 - **Keys API** (`apis/keys`) acts on the caller's own key, the owner taken from `getUser()` and
   never from the request, and refuses callers without the MCP role, admins included. Only
   `GET ?all=true` and `DELETE ?owner=` are admin paths. `POST` returns the plaintext once.
+- **Vertex AI.** `lib/vertex.ts` `generate({ prompt, model?, runId? })` calls Gemini through
+  lib-http-client and throws only short messages that are safe to store. `lib/vertex-auth.ts`
+  reaches google-auth-library through `Java.type`, holds one cached credentials object, and is
+  mocked in tests. Never log or throw a prompt, an output, a token or a response body.
 - **Scheduling** uses core `lib-scheduler`, not the community `lib-cron`, because scheduler jobs
   are persisted and fire once per cluster. `apis/crons` only reads jobs and toggles `enabled`.
   Creating jobs needs a task descriptor, which arrives with the workflow runner.
@@ -131,6 +135,10 @@ XP 8 replaced XML descriptors with YAML. Older XP docs show XML; ignore them.
 2. Add its types: `pnpm add -D @enonic-types/lib-event`.
 3. If the `/lib/xp/*` wildcard does not cover it, add a `paths` entry in
    `src/main/resources/tsconfig.json` and a matching `types/*.d.ts`, as for `/lib/mustache`.
+   A types package that declares its module as an augmentation, as `/lib/http-client` does,
+   also goes in `types`, and its `types/*.d.ts` is an empty module for it to augment.
+4. Tests alias only `/lib/xp/*` to `src/test/stubs/xp/`; any other path needs its own alias
+   in `vite.config.ts` and a stub, as `/lib/http-client` has.
 
 ## Git & GitHub
 

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { getMcpConfig } from '../../main/resources/lib/config';
+import { getMcpConfig, getVertexConfig } from '../../main/resources/lib/config';
 
 function withConfig(config: Record<string, string>) {
   vi.stubGlobal('app', { config });
@@ -61,5 +61,31 @@ describe('getMcpConfig', () => {
     withConfig({ 'mcp.toolsets': ' ' });
 
     expect(getMcpConfig().toolsets).toEqual([]);
+  });
+});
+
+describe('getVertexConfig', () => {
+  it('should treat blank values as unset and default the model to gemini-3.1-flash-lite', () => {
+    withConfig({ 'vertex.credentialsPath': ' ', 'vertex.project': ' ', 'vertex.model': ' ' });
+
+    expect(getVertexConfig()).toEqual({
+      credentialsPath: undefined,
+      project: undefined,
+      model: 'gemini-3.1-flash-lite',
+    });
+  });
+
+  it('should read vertex.credentialsPath, vertex.project and vertex.model trimmed', () => {
+    withConfig({
+      'vertex.credentialsPath': ' /etc/xp/sa.json ',
+      'vertex.project': ' acme-ai ',
+      'vertex.model': ' gemini-3.7-flash ',
+    });
+
+    expect(getVertexConfig()).toEqual({
+      credentialsPath: '/etc/xp/sa.json',
+      project: 'acme-ai',
+      model: 'gemini-3.7-flash',
+    });
   });
 });
