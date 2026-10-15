@@ -95,7 +95,20 @@ A workflow is a list of `llm` steps, `{ id, type: 'llm', config: { prompt, model
 
 `POST ?id=<id>&action=run` starts a run as the calling admin and returns `{ runId, taskId, status }` once the run record exists; `GET ?id=<id>&runs=true` lists the workflow's runs, newest first. A run records `status` (`running`, `done`, `failed` or `skipped`), `trigger` (`manual` or `schedule`), `user`, `taskId`, `startedAt`, `finishedAt`, each step's `output`, `error` and `ms`, and the run's `output` and `error`. Runs only run as an administrator: a run whose user is not one, or resolves to anonymous, is recorded as `failed`. Starting a run while another run of the same workflow is going records it as `skipped`; the check is not atomic, so two runs started in the same instant can both go ahead. Outputs are stored up to 32 KB, and the last 20 runs of each workflow are kept. A run that no live task owns any more, such as one left `running` by a restart, is marked `failed` with the error `interrupted`, at startup or when the next run of that workflow starts. Runs are stored under the workflow, so deleting the workflow deletes them, and only administrators can read them. The log carries a run's status, latency and id, never a prompt or an output.
 
-In the admin tool's Workflows tab an admin creates a workflow by name, then on its page edits the steps (add, remove, reorder, a prompt and an optional model each), runs it, and reads its runs: status, trigger, user, timing, each step's output or error, and the run's output. The runs list refreshes every two seconds while a run is going. Run now runs the saved steps, so it waits until edited steps are saved, and leaving the page with unsaved steps asks first. `pnpm dev` serves the same flow against an in-memory mock, where each step takes 1.5 s and a prompt containing the word "fail" fails its step.
+In the admin tool's Workflows tab an admin creates a workflow by name, then on its page edits the steps (add, remove, reorder, a prompt and an optional model each), runs it, and reads its runs: status, trigger, user, timing, each step's output or error, and the run's output. The runs list refreshes every two seconds while a run is going. Run now runs the saved steps, so it waits until edited steps are saved, and leaving the page with unsaved steps or an unsaved schedule asks first. `pnpm dev` serves the same flow against an in-memory mock, where each step takes 1.5 s and a prompt containing the word "fail" fails its step.
+
+### Schedules
+
+A workflow runs on a cron through one XP scheduler job, named `grieg-workflow-<workflowId>`, which runs the `run-workflow` task once per cluster as the job's user. The Crons API manages it:
+
+- `POST` with `{ workflowId, cron, timeZone?, enabled? }` creates it, in `UTC` and enabled unless the body says otherwise, and answers `409` when the workflow already has one.
+- `PUT ?name=<job>` with any of `{ cron, timeZone, enabled }` changes it.
+- `DELETE ?name=<job>` deletes it; deleting the workflow deletes it too.
+- `GET ?workflowId=<id>` returns it, or `null`. `GET` lists every job on the server, with the user it runs as and, for a workflow schedule, its `workflowId`.
+
+The job runs as the admin who last saved it: every `POST` and `PUT` sets its user to the caller, whatever the body says. If that admin is later disabled or loses `role:system.admin`, each scheduled run is recorded as `failed`; another admin re-saving the schedule takes it over. The cron has five fields (minute, hour, day of month, month, day of week), and an unknown time zone is refused with `400 INVALID_TIME_ZONE` rather than run in GMT. A fire that lands while a run is going is recorded as `skipped`. The job's `enabled` is the only switch: the workflow's own `enabled` flag does not stop a schedule. Jobs of other applications are listed too, but only their `enabled` can be toggled here, which leaves their user as it is; their cron cannot be changed, and they cannot be deleted.
+
+On a workflow's page the Schedule card edits the cron, time zone and enabled state, shows who the job runs as and when it last ran, and deletes it. The Crons tab lists every job with the user it runs as, and links a workflow schedule to its workflow.
 
 ## MCP
 

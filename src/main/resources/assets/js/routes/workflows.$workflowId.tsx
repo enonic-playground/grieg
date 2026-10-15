@@ -14,8 +14,11 @@ import { Button } from '../components/ui/button';
 import { Card, CardContent } from '../components/ui/card';
 import { ConfirmDialog } from '../components/ui/confirm-dialog';
 import { RunsCard } from '../components/workflows/runs-card';
+import { ScheduleCard } from '../components/workflows/schedule-card';
 import { StepsEditorCard } from '../components/workflows/steps-editor-card';
+import { useScheduleDraft } from '../components/workflows/use-schedule-draft';
 import { useStepsDraft } from '../components/workflows/use-steps-draft';
+import { scheduleQueryOptions } from '../lib/api/crons';
 import {
   runsQueryKey,
   runWorkflow,
@@ -34,6 +37,8 @@ const WorkflowDetails = ({ workflow }: WorkflowDetailsProps): ReactElement => {
   const queryClient = useQueryClient();
   const draft = useStepsDraft(workflow.steps);
   const saving = useIsMutating({ mutationKey: saveMutationKey(workflow.id) }) > 0;
+  const scheduleQuery = useQuery(scheduleQueryOptions(workflow.id));
+  const scheduleDraft = useScheduleDraft(scheduleQuery.data);
 
   const run = useMutation({
     mutationFn: () => runWorkflow(workflow.id),
@@ -41,8 +46,9 @@ const WorkflowDetails = ({ workflow }: WorkflowDetailsProps): ReactElement => {
   });
 
   const { dirty } = draft;
-  // Stable while `dirty` holds, so the blocker is not re-registered on every keystroke.
-  const isDirty = useCallback(() => dirty, [dirty]);
+  const leaveDirty = dirty || scheduleDraft.dirty;
+  // Stable while `leaveDirty` holds, so the blocker is not re-registered on every keystroke.
+  const isDirty = useCallback(() => leaveDirty, [leaveDirty]);
   const blocker = useBlocker({
     shouldBlockFn: isDirty,
     enableBeforeUnload: isDirty,
@@ -97,6 +103,12 @@ const WorkflowDetails = ({ workflow }: WorkflowDetailsProps): ReactElement => {
       </Card>
 
       <RunsCard workflowId={workflow.id} />
+      <ScheduleCard
+        workflowId={workflow.id}
+        job={scheduleQuery.data}
+        failed={scheduleQuery.data === undefined && scheduleQuery.error != null}
+        draft={scheduleDraft}
+      />
       <StepsEditorCard workflowId={workflow.id} draft={draft} />
 
       {blocker.status === 'blocked' && (

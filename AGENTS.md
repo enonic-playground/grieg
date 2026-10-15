@@ -48,9 +48,10 @@ node dev/mcp-stdio.ts           # stdio→HTTP MCP forwarder for stdio-only clie
   name a server lib after one of them.
 - `delete` is a reserved word: write a DELETE handler as a named function and export it with
   `export { handleDelete as delete }`.
-- `lib/mcp.ts`, `lib/access.ts`, `lib/shape.ts`, `lib/content-shape.ts`, `lib/node-shape.ts`
-  and `lib/config.ts` stay free of `/lib/xp/*` imports so tests can load them directly. Tests
-  reach the other server modules through the `/lib/xp/*` stubs aliased in `vite.config.ts`.
+- `lib/mcp.ts`, `lib/access.ts`, `lib/shape.ts`, `lib/content-shape.ts`, `lib/node-shape.ts`,
+  `lib/schedule.ts` and `lib/config.ts` stay free of `/lib/xp/*` imports so tests and the dev
+  mock can load them directly. Tests reach the other server modules through the `/lib/xp/*`
+  stubs aliased in `vite.config.ts`.
   `lib/shape.ts` holds what the content and node tools share (cursors, dot paths, projection),
   and imports nothing, so the shape modules never import each other in a cycle.
 
@@ -97,8 +98,17 @@ phrases), which the React bundle reads at boot.
   cluster node leaves another node's runs alone. `getById()` accepts only direct children of
   `/workflows`, since run nodes live below it.
 - **Scheduling** uses core `lib-scheduler`, not the community `lib-cron`, because scheduler jobs
-  are persisted and fire once per cluster. `apis/crons` only reads jobs and toggles `enabled`.
-  Creating jobs needs a task descriptor, which arrives with the workflow runner.
+  are persisted and fire once per cluster. A workflow has at most one cron job, named
+  `grieg-workflow-<workflowId>` (`scheduleName()` in `lib/schedule.ts`), running `RUN_TASK` with
+  config `{ workflowId }`. `apis/crons` creates, edits and deletes only jobs with that
+  descriptor, and sets the job `user` to the caller on every save; another app's job only
+  toggles `enabled` and keeps its user, so a save never makes it run as the saving admin. The
+  scheduler re-authenticates the job user at fire time, so a disabled or demoted owner turns
+  every scheduled run into a `failed` one. The job's `enabled` is the only switch: the task
+  ignores the workflow's own `enabled`, which nothing in the UI sets and `createWorkflow`
+  defaults to `false`. lib-scheduler falls back to GMT for an unknown time zone, so
+  `lib/time-zone.ts` checks it through the JVM first. Deleting a workflow deletes its job, best
+  effort.
 - **MCP** (`apis/mcp`, served at `/api/com.enonic.app.grieg:mcp`) is a stateless MCP server over
   HTTP POST.
   - `lib/mcp.ts` serves protocol `2026-07-28` and the legacy `initialize` handshake from one

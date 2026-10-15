@@ -62,22 +62,71 @@ function buildRun(overrides?: Partial<Run>): Run {
   };
 }
 
+type Job = {
+  name: string;
+  enabled: boolean;
+  cron?: string;
+  timeZone?: string;
+  descriptor: string;
+  user?: string;
+  workflowId?: string;
+  lastRun?: string;
+};
+
+function buildJob(overrides?: Partial<Job>): Job {
+  return {
+    name: 'grieg-workflow-wf-1',
+    enabled: true,
+    cron: '0 2 * * *',
+    timeZone: 'Europe/Oslo',
+    descriptor: 'com.enonic.app.grieg:run-workflow',
+    user: 'user:system:alice',
+    workflowId: 'wf-1',
+    ...overrides,
+  };
+}
+
 type MockOptions = {
   workflows?: ReturnType<typeof buildWorkflow>[];
   runs?: Run[] | (() => Run[]);
   put?: (body: { steps: Step[] }) => unknown;
   run?: () => unknown;
+  schedule?: Job | null;
+  saveSchedule?: (options: FetchOptions) => unknown;
 };
+
+const CRONS_URL = buildConfig().apiUris.crons;
+
+// Answers the crons API the way the server does for the workflow's own schedule.
+function answerCrons(state: { schedule: Job | null }, options: FetchOptions): unknown {
+  const { method = 'GET', body } = options;
+  if (method === 'GET') return state.schedule;
+  if (method === 'DELETE') {
+    state.schedule = null;
+    return { name: 'grieg-workflow-wf-1' };
+  }
+  const input = body as { cron: string; timeZone: string; enabled: boolean };
+  state.schedule = buildJob({ ...state.schedule, ...input, user: 'user:system:su' });
+  return state.schedule;
+}
 
 function mockWorkflowsApi({
   workflows: initial = [buildWorkflow()],
   runs = [],
   put,
   run,
+  schedule = null,
+  saveSchedule,
 }: MockOptions = {}) {
   const workflows = [...initial];
   const calls: FetchOptions[] = [];
-  mockedApiFetch.mockImplementation(async (_url: string, options: FetchOptions = {}) => {
+  const crons = { schedule };
+  mockedApiFetch.mockImplementation(async (url: string, options: FetchOptions = {}) => {
+    if (url === CRONS_URL) {
+      cronCalls.push(options);
+      if (options.method != null && saveSchedule != null) return saveSchedule(options);
+      return answerCrons(crons, options);
+    }
     calls.push(options);
     const { method = 'GET', params = {}, body } = options;
     const workflow = workflows.find((item) => item.id === params.id);
@@ -112,6 +161,8 @@ function mockWorkflowsApi({
   return calls;
 }
 
+let cronCalls: FetchOptions[] = [];
+
 function getComponent(name: string): HTMLElement {
   const el = document.querySelector(`[data-component="${name}"]`);
   if (!el) throw new Error(`${name} not found`);
@@ -121,6 +172,8 @@ function getComponent(name: string): HTMLElement {
 afterEach(() => {
   vi.useRealTimers();
   mockedApiFetch.mockReset();
+  vi.restoreAllMocks();
+  cronCalls = [];
 });
 
 describe('WorkflowsPage', () => {
@@ -442,6 +495,157 @@ describe('WorkflowPage', () => {
 
     await user.click(within(dialog).getByRole('button', { name: 'Discard' }));
     await waitFor(() => expect(router.state.location.pathname).toBe('/workflows'));
+  });
+});
+
+describe('ScheduleCard', () => {
+  async function findCard() {
+    await screen.findByLabelText('Cron');
+    return within(getComponent('ScheduleCard'));
+  }
+
+  it('should create a schedule from the cron, the browser time zone and enabled', async () => {
+    const resolved = Intl.DateTimeFormat().resolvedOptions();
+    vi.spyOn(Intl.DateTimeFormat.prototype, 'resolvedOptions').mockReturnValue({
+      ...resolved,
+      timeZone: 'Asia/Tokyo',
+    });
+    mockWorkflowsApi();
+    const { user } = renderRoute({ initialLocation: '/workflows/wf-1' });
+    const card = await findCard();
+
+    expect(card.getByRole('button', { name: 'Create' })).toBeDisabled();
+    expect(card.queryByRole('button', { name: 'Delete' })).toBeNull();
+    await user.type(card.getByLabelText('Cron'), ' 0 6 * * 1 ');
+    await user.click(card.getByRole('button', { name: 'Create' }));
+
+    expect(cronCalls.at(-1)).toEqual({
+      method: 'POST',
+      body: {
+        workflowId: 'wf-1',
+        cron: '0 6 * * 1',
+        timeZone: 'Asia/Tokyo',
+        enabled: true,
+      },
+    });
+    expect(await card.findByText('user:system:su')).toBeInTheDocument();
+    expect(card.getByRole('button', { name: 'Save' })).toBeDisabled();
+  });
+
+  it('should show the saved schedule and its owner, and save edits by job name', async () => {
+    mockWorkflowsApi({ schedule: buildJob() });
+    const { user } = renderRoute({ initialLocation: '/workflows/wf-1' });
+    const card = await findCard();
+
+    expect(await card.findByDisplayValue('0 2 * * *')).toBeInTheDocument();
+    expect(card.getByLabelText('Time zone')).toHaveValue('Europe/Oslo');
+    expect(card.getByText('user:system:alice')).toBeInTheDocument();
+
+    await user.click(card.getByLabelText('Enabled'));
+    await user.clear(card.getByLabelText('Time zone'));
+    await user.type(card.getByLabelText('Time zone'), 'UTC');
+    await user.click(card.getByRole('button', { name: 'Save' }));
+
+    expect(cronCalls.at(-1)).toEqual({
+      method: 'PUT',
+      params: { name: 'grieg-workflow-wf-1' },
+      body: { cron: '0 2 * * *', timeZone: 'UTC', enabled: false },
+    });
+    expect(await card.findByText('user:system:su')).toBeInTheDocument();
+  });
+
+  it('should let another admin take over an unchanged schedule by saving it', async () => {
+    mockWorkflowsApi({ schedule: buildJob({ user: 'user:system:alice' }) });
+    const { user } = renderRoute({ initialLocation: '/workflows/wf-1' });
+    const card = await findCard();
+
+    expect(await card.findByText('Save to run it as you')).toBeInTheDocument();
+    await user.click(card.getByRole('button', { name: 'Save' }));
+
+    expect(cronCalls.at(-1)).toMatchObject({
+      method: 'PUT',
+      params: { name: 'grieg-workflow-wf-1' },
+      body: { cron: '0 2 * * *', timeZone: 'Europe/Oslo', enabled: true },
+    });
+    expect(await card.findByText('user:system:su')).toBeInTheDocument();
+    expect(card.getByRole('button', { name: 'Save' })).toBeDisabled();
+  });
+
+  it('should delete the schedule after confirming', async () => {
+    mockWorkflowsApi({ schedule: buildJob() });
+    const { user } = renderRoute({ initialLocation: '/workflows/wf-1' });
+    const card = await findCard();
+
+    await user.click(await card.findByRole('button', { name: 'Delete' }));
+    const dialog = await screen.findByRole('alertdialog');
+    await user.click(within(dialog).getByRole('button', { name: 'Delete' }));
+
+    expect(cronCalls.at(-1)).toEqual({
+      method: 'DELETE',
+      params: { name: 'grieg-workflow-wf-1' },
+    });
+    expect(await card.findByRole('button', { name: 'Create' })).toBeInTheDocument();
+    expect(card.getByLabelText('Cron')).toHaveValue('');
+  });
+
+  it('should show why the server refused the schedule', async () => {
+    mockWorkflowsApi({
+      saveSchedule: () =>
+        Promise.reject({
+          status: 400,
+          message: 'Unknown time zone Mars/Base',
+          code: 'INVALID_TIME_ZONE',
+        }),
+    });
+    const { user } = renderRoute({ initialLocation: '/workflows/wf-1' });
+    const card = await findCard();
+
+    await user.type(card.getByLabelText('Cron'), '0 6 * * *');
+    await user.click(card.getByRole('button', { name: 'Create' }));
+
+    expect(await card.findByRole('alert')).toHaveTextContent('Unknown time zone Mars/Base');
+  });
+
+  it('should keep edited fields when the saved schedule changes under them', async () => {
+    mockWorkflowsApi({ schedule: buildJob() });
+    const { user, queryClient } = renderRoute({ initialLocation: '/workflows/wf-1' });
+    const card = await findCard();
+
+    await user.clear(await card.findByDisplayValue('0 2 * * *'));
+    await user.type(card.getByLabelText('Cron'), '0 4 * * *');
+    act(() => {
+      queryClient.setQueryData(
+        ['crons', 'workflow', 'wf-1'],
+        buildJob({ cron: '5 5 * * *', user: 'user:system:bob' }),
+      );
+    });
+
+    expect(await card.findByText('user:system:bob')).toBeInTheDocument();
+    expect(card.getByLabelText('Cron')).toHaveValue('0 4 * * *');
+  });
+
+  it('should not hold the page for a new schedule that has no cron yet', async () => {
+    mockWorkflowsApi();
+    const { user, router } = renderRoute({ initialLocation: '/workflows/wf-1' });
+    const card = await findCard();
+
+    await user.click(card.getByLabelText('Enabled'));
+    expect(card.getByRole('button', { name: 'Create' })).toBeDisabled();
+    await user.click(screen.getByRole('link', { name: 'All workflows' }));
+
+    await waitFor(() => expect(router.state.location.pathname).toBe('/workflows'));
+  });
+
+  it('should ask before leaving with an unsaved schedule', async () => {
+    mockWorkflowsApi();
+    const { user, router } = renderRoute({ initialLocation: '/workflows/wf-1' });
+    const card = await findCard();
+
+    await user.type(card.getByLabelText('Cron'), '0 6 * * *');
+    await user.click(screen.getByRole('link', { name: 'All workflows' }));
+
+    expect(await screen.findByRole('alertdialog')).toBeInTheDocument();
+    expect(router.state.location.pathname).toBe('/workflows/wf-1');
   });
 });
 

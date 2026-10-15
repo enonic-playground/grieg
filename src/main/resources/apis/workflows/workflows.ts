@@ -1,10 +1,12 @@
 import { getUser } from '/lib/xp/auth';
+import { deleteJob, get as getJob } from '/lib/xp/scheduler';
 import { submitTask } from '/lib/xp/task';
 
 import type { Request, Response } from '@enonic-types/core';
 
 import { errorResponse, getParam, jsonResponse, parseBody, requireAdmin } from '../../lib/api';
 import { RUN_TASK, claimRun, createRun, finishRun, listRuns } from '../../lib/runs';
+import { scheduleName } from '../../lib/schedule';
 import { validateSteps } from '../../lib/steps';
 import {
   createWorkflow,
@@ -106,6 +108,16 @@ export function put(req: Request): Response {
   return jsonResponse(workflow);
 }
 
+// Best effort: a schedule left behind fires into a missing workflow, which the task only logs.
+function deleteSchedule(workflowId: string): void {
+  const name = scheduleName(workflowId);
+  try {
+    if (getJob({ name })?.descriptor === RUN_TASK) deleteJob({ name });
+  } catch {
+    log.warning(`Scheduled job ${name} of a deleted workflow could not be deleted`);
+  }
+}
+
 function handleDelete(req: Request): Response {
   const forbidden = requireAdmin();
   if (forbidden != null) return forbidden;
@@ -114,6 +126,7 @@ function handleDelete(req: Request): Response {
   if (id == null) return errorResponse(400, 'Missing `id` parameter', 'BAD_REQUEST');
 
   if (!deleteWorkflow(id)) return errorResponse(404, `No workflow with id ${id}`, 'NOT_FOUND');
+  deleteSchedule(id);
   return jsonResponse({ id });
 }
 
