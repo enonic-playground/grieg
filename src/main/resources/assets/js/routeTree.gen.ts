@@ -14,6 +14,8 @@ import { Route as CronsRouteImport } from './routes/crons'
 import { Route as McpRouteImport } from './routes/mcp'
 import { Route as SystemRouteImport } from './routes/system'
 import { Route as WorkflowsRouteImport } from './routes/workflows'
+import { Route as WorkflowsIndexRouteImport } from './routes/workflows.index'
+import { Route as WorkflowsWorkflowIdRouteImport } from './routes/workflows.$workflowId'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -40,20 +42,33 @@ const WorkflowsRoute = WorkflowsRouteImport.update({
   path: '/workflows',
   getParentRoute: () => rootRouteImport,
 } as any)
+const WorkflowsIndexRoute = WorkflowsIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => WorkflowsRoute,
+} as any)
+const WorkflowsWorkflowIdRoute = WorkflowsWorkflowIdRouteImport.update({
+  id: '/$workflowId',
+  path: '/$workflowId',
+  getParentRoute: () => WorkflowsRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/crons': typeof CronsRoute
   '/mcp': typeof McpRoute
   '/system': typeof SystemRoute
-  '/workflows': typeof WorkflowsRoute
+  '/workflows': typeof WorkflowsRouteWithChildren
+  '/workflows/$workflowId': typeof WorkflowsWorkflowIdRoute
+  '/workflows/': typeof WorkflowsIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/crons': typeof CronsRoute
   '/mcp': typeof McpRoute
   '/system': typeof SystemRoute
-  '/workflows': typeof WorkflowsRoute
+  '/workflows/$workflowId': typeof WorkflowsWorkflowIdRoute
+  '/workflows': typeof WorkflowsIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -61,14 +76,37 @@ export interface FileRoutesById {
   '/crons': typeof CronsRoute
   '/mcp': typeof McpRoute
   '/system': typeof SystemRoute
-  '/workflows': typeof WorkflowsRoute
+  '/workflows': typeof WorkflowsRouteWithChildren
+  '/workflows/$workflowId': typeof WorkflowsWorkflowIdRoute
+  '/workflows/': typeof WorkflowsIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/crons' | '/mcp' | '/system' | '/workflows'
+  fullPaths:
+    | '/'
+    | '/crons'
+    | '/mcp'
+    | '/system'
+    | '/workflows'
+    | '/workflows/$workflowId'
+    | '/workflows/'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/crons' | '/mcp' | '/system' | '/workflows'
-  id: '__root__' | '/' | '/crons' | '/mcp' | '/system' | '/workflows'
+  to:
+    | '/'
+    | '/crons'
+    | '/mcp'
+    | '/system'
+    | '/workflows/$workflowId'
+    | '/workflows'
+  id:
+    | '__root__'
+    | '/'
+    | '/crons'
+    | '/mcp'
+    | '/system'
+    | '/workflows'
+    | '/workflows/$workflowId'
+    | '/workflows/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -76,7 +114,7 @@ export interface RootRouteChildren {
   CronsRoute: typeof CronsRoute
   McpRoute: typeof McpRoute
   SystemRoute: typeof SystemRoute
-  WorkflowsRoute: typeof WorkflowsRoute
+  WorkflowsRoute: typeof WorkflowsRouteWithChildren
 }
 
 declare module '@tanstack/react-router' {
@@ -116,15 +154,43 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof WorkflowsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/workflows/': {
+      id: '/workflows/'
+      path: '/'
+      fullPath: '/workflows/'
+      preLoaderRoute: typeof WorkflowsIndexRouteImport
+      parentRoute: typeof WorkflowsRoute
+    }
+    '/workflows/$workflowId': {
+      id: '/workflows/$workflowId'
+      path: '/$workflowId'
+      fullPath: '/workflows/$workflowId'
+      preLoaderRoute: typeof WorkflowsWorkflowIdRouteImport
+      parentRoute: typeof WorkflowsRoute
+    }
   }
 }
+
+interface WorkflowsRouteChildren {
+  WorkflowsWorkflowIdRoute: typeof WorkflowsWorkflowIdRoute
+  WorkflowsIndexRoute: typeof WorkflowsIndexRoute
+}
+
+const WorkflowsRouteChildren: WorkflowsRouteChildren = {
+  WorkflowsWorkflowIdRoute: WorkflowsWorkflowIdRoute,
+  WorkflowsIndexRoute: WorkflowsIndexRoute,
+}
+
+const WorkflowsRouteWithChildren = WorkflowsRoute._addFileChildren(
+  WorkflowsRouteChildren,
+)
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   CronsRoute: CronsRoute,
   McpRoute: McpRoute,
   SystemRoute: SystemRoute,
-  WorkflowsRoute: WorkflowsRoute,
+  WorkflowsRoute: WorkflowsRouteWithChildren,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
