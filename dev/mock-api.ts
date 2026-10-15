@@ -3,6 +3,7 @@ import { randomBytes } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { Plugin } from 'vite-plus';
 
+import { scheduleInputError, scheduleName } from '../src/main/resources/lib/schedule.ts';
 import { validateSteps } from '../src/main/resources/lib/steps.ts';
 
 // In-memory stand-ins for the XP server APIs, so the React app runs without a sandbox.
@@ -284,23 +285,154 @@ const workflowsApi: Partial<Record<Method, Handler>> = {
   },
 };
 
-const cronJobs = [
+type MockJob = {
+  name: string;
+  description?: string;
+  enabled: boolean;
+  cron: string;
+  timeZone: string;
+  descriptor: string;
+  user?: string;
+  workflowId?: string;
+  lastRun?: string;
+};
+
+const RUN_TASK = 'com.enonic.app.grieg:run-workflow';
+
+const cronJobs: MockJob[] = [
   {
-    name: 'summarize-articles-nightly',
-    description: 'Runs the article summarizer',
+    name: scheduleName('wf-1'),
     enabled: true,
     cron: '0 2 * * *',
     timeZone: 'Europe/Oslo',
-    descriptor: 'com.enonic.app.grieg:run-workflow',
+    descriptor: RUN_TASK,
+    user: 'user:system:su',
+    workflowId: 'wf-1',
     lastRun: '2026-09-11T02:00:03Z',
   },
   {
-    name: 'tag-images-hourly',
+    name: 'purge-trash-weekly',
+    description: "Another application's job",
     enabled: false,
-    cron: '0 * * * *',
-    descriptor: 'com.enonic.app.grieg:run-workflow',
+    cron: '0 3 * * 0',
+    timeZone: 'UTC',
+    descriptor: 'com.example.app.cleanup:purge-trash',
+    user: 'user:system:cleanup',
   },
 ];
+
+function isTimeZone(id: string): boolean {
+  try {
+    new Intl.DateTimeFormat('en', { timeZone: id });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function scheduleError(
+  input: Record<string, unknown> | undefined,
+  required: boolean,
+): Reply | undefined {
+  const invalid = scheduleInputError(input, required);
+  if (invalid != null) return { status: 400, error: invalid, code: 'BAD_REQUEST' };
+  const timeZone = input?.timeZone;
+  if (typeof timeZone === 'string' && !isTimeZone(timeZone)) {
+    return { status: 400, error: `Unknown time zone ${timeZone}`, code: 'INVALID_TIME_ZONE' };
+  }
+  return undefined;
+}
+
+function findJob(params: URLSearchParams): MockJob | Reply {
+  const name = params.get('name');
+  if (name == null) return { status: 400, error: 'Missing `name` parameter' };
+  return (
+    cronJobs.find((job) => job.name === name) ?? {
+      status: 404,
+      error: `No scheduled job named ${name}`,
+      code: 'NOT_FOUND',
+    }
+  );
+}
+
+function isJob(value: MockJob | Reply): value is MockJob {
+  return 'descriptor' in value;
+}
+
+// Mirrors apis/crons, including re-owning a workflow schedule on save.
+const cronsApi: Partial<Record<Method, Handler>> = {
+  GET: (params) => {
+    const workflowId = params.get('workflowId');
+    if (workflowId == null) return { data: { jobs: cronJobs } };
+    return { data: cronJobs.find((job) => job.name === scheduleName(workflowId)) ?? null };
+  },
+  POST: async (_params, req) => {
+    const input = await readJson(req);
+    const workflowId = input?.workflowId;
+    if (typeof workflowId !== 'string' || workflowId === '') {
+      return { status: 400, error: 'Body must name a `workflowId`', code: 'BAD_REQUEST' };
+    }
+    const invalid = scheduleError(input, true);
+    if (invalid != null) return invalid;
+    if (!workflows.some((workflow) => workflow.id === workflowId)) {
+      return { status: 404, error: `No workflow with id ${workflowId}`, code: 'NOT_FOUND' };
+    }
+    const name = scheduleName(workflowId);
+    if (cronJobs.some((job) => job.name === name)) {
+      return {
+        status: 409,
+        error: `Workflow ${workflowId} already has a schedule`,
+        code: 'CONFLICT',
+      };
+    }
+    const job: MockJob = {
+      name,
+      enabled: input?.enabled !== false,
+      cron: String(input?.cron).trim(),
+      timeZone: typeof input?.timeZone === 'string' ? input.timeZone : 'UTC',
+      descriptor: RUN_TASK,
+      user: DEV_OWNER,
+      workflowId,
+    };
+    cronJobs.push(job);
+    return { status: 201, data: job };
+  },
+  PUT: async (params, req) => {
+    const input = await readJson(req);
+    const invalid = scheduleError(input, false);
+    if (invalid != null) return invalid;
+    const job = findJob(params);
+    if (!isJob(job)) return job;
+    const own = job.descriptor === RUN_TASK;
+    if (!own && (input?.cron !== undefined || input?.timeZone !== undefined)) {
+      return {
+        status: 403,
+        error: 'Only a workflow cron schedule can change its cron',
+        code: 'FORBIDDEN',
+      };
+    }
+    if (typeof input?.enabled === 'boolean') job.enabled = input.enabled;
+    if (own) {
+      if (typeof input?.cron === 'string') job.cron = input.cron.trim();
+      if (typeof input?.timeZone === 'string') job.timeZone = input.timeZone;
+      job.user = DEV_OWNER;
+    }
+    return { data: job };
+  },
+  DELETE: (params) => {
+    const job = findJob(params);
+    if (!isJob(job)) return job;
+    if (job.descriptor !== RUN_TASK) {
+      return {
+        status: 403,
+        error: 'Only a workflow schedule can be deleted here',
+        code: 'FORBIDDEN',
+      };
+    }
+    cronJobs.splice(cronJobs.indexOf(job), 1);
+    return { data: { name: job.name } };
+  },
+};
 
 type KeyInfo = { display: string; created: string; expires: string; lastUsed?: string };
 
@@ -352,7 +484,7 @@ const HANDLERS: Record<string, Partial<Record<Method, Handler>>> = {
     }),
   },
   workflows: workflowsApi,
-  crons: { GET: () => ({ data: { jobs: cronJobs } }) },
+  crons: cronsApi,
   keys: {
     GET: (params) =>
       params.get('all') === 'true'

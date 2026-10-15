@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { createFileRoute } from '@tanstack/react-router';
+import { createFileRoute, Link } from '@tanstack/react-router';
 import { CalendarClock } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
@@ -46,6 +46,7 @@ const CronsPage = (): ReactElement => {
             <TableHead>{t('crons.column.name')}</TableHead>
             <TableHead>{t('crons.column.cron')}</TableHead>
             <TableHead>{t('crons.column.descriptor')}</TableHead>
+            <TableHead>{t('crons.column.user')}</TableHead>
             <TableHead>{t('crons.column.lastRun')}</TableHead>
             <TableHead>{t('crons.column.state')}</TableHead>
           </TableRow>
@@ -53,9 +54,27 @@ const CronsPage = (): ReactElement => {
         <TableBody>
           {data.map((job) => (
             <TableRow key={job.name}>
-              <TableCell>{job.name}</TableCell>
-              <TableCell>{job.cron ?? '-'}</TableCell>
+              <TableCell>
+                {job.workflowId == null ? (
+                  job.name
+                ) : (
+                  <Link
+                    to="/workflows/$workflowId"
+                    params={{ workflowId: job.workflowId }}
+                    className="hover:underline"
+                  >
+                    {job.name}
+                  </Link>
+                )}
+              </TableCell>
+              <TableCell>
+                {job.cron ?? '-'}
+                {job.timeZone != null && (
+                  <span className="text-muted-foreground"> ({job.timeZone})</span>
+                )}
+              </TableCell>
               <TableCell>{job.descriptor}</TableCell>
+              <TableCell>{job.user ?? '-'}</TableCell>
               <TableCell>{job.lastRun ?? '-'}</TableCell>
               <TableCell>
                 <Badge variant={job.enabled ? 'default' : 'outline'}>

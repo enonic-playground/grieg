@@ -1,4 +1,5 @@
 import * as authLib from '/lib/xp/auth';
+import * as schedulerLib from '/lib/xp/scheduler';
 import * as taskLib from '/lib/xp/task';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -30,6 +31,9 @@ const hasRole = vi.mocked(authLib.hasRole);
 const submitTask = vi.mocked(taskLib.submitTask);
 const getById = vi.mocked(workflowsLib.getById);
 const createWorkflow = vi.mocked(workflowsLib.createWorkflow);
+const deleteWorkflow = vi.mocked(workflowsLib.deleteWorkflow);
+const getJob = vi.mocked(schedulerLib.get);
+const deleteJob = vi.mocked(schedulerLib.deleteJob);
 const updateWorkflow = vi.mocked(workflowsLib.updateWorkflow);
 const createRun = vi.mocked(runsLib.createRun);
 const finishRun = vi.mocked(runsLib.finishRun);
@@ -140,6 +144,44 @@ describe('POST ?action=run', () => {
     expect(json(response).message).toBe(message);
     expect(createRun).not.toHaveBeenCalled();
     expect(createWorkflow).not.toHaveBeenCalled();
+  });
+});
+
+describe('DELETE', () => {
+  const job = { name: 'grieg-workflow-wf-1', descriptor: 'com.enonic.app.grieg:run-workflow' };
+
+  it('should delete the workflow schedule with the workflow', () => {
+    deleteWorkflow.mockReturnValue(true);
+    getJob.mockReturnValue(job as never);
+
+    expect(api.delete(request({ id: 'wf-1' })).status).toBe(200);
+    expect(getJob).toHaveBeenCalledWith({ name: 'grieg-workflow-wf-1' });
+    expect(deleteJob).toHaveBeenCalledWith({ name: 'grieg-workflow-wf-1' });
+  });
+
+  it('should leave a job of another application under that name alone', () => {
+    deleteWorkflow.mockReturnValue(true);
+    getJob.mockReturnValue({ ...job, descriptor: 'com.example.app:purge' } as never);
+
+    expect(api.delete(request({ id: 'wf-1' })).status).toBe(200);
+    expect(deleteJob).not.toHaveBeenCalled();
+  });
+
+  it('should still answer the deleted workflow when its schedule cannot be deleted', () => {
+    deleteWorkflow.mockReturnValue(true);
+    getJob.mockReturnValue(job as never);
+    deleteJob.mockImplementation(() => {
+      throw new Error('Repository unavailable');
+    });
+
+    expect(api.delete(request({ id: 'wf-1' })).status).toBe(200);
+  });
+
+  it('should not touch the scheduler when the workflow does not exist', () => {
+    deleteWorkflow.mockReturnValue(false);
+
+    expect(api.delete(request({ id: 'wf-1' })).status).toBe(404);
+    expect(getJob).not.toHaveBeenCalled();
   });
 });
 
