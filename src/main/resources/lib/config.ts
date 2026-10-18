@@ -3,7 +3,7 @@
 const DEFAULT_PROJECT = 'default';
 const DEFAULT_BRANCH = 'draft';
 const DEFAULT_ID_PROVIDER = 'system';
-const DEFAULT_TOOLSETS = ['content', 'nodes', 'workflows'];
+export const TOOLSETS = ['content', 'nodes', 'workflows'];
 
 export type McpConfig = {
   // Deprecated shared-token mode, on only while `token` and `user` are both set.
@@ -46,7 +46,7 @@ export function getMcpConfig(): McpConfig {
     allowedOrigins: list('mcp.allowedOrigins'),
     allowedHosts: list('mcp.allowedHosts'),
     // Present but blank means no toolsets, so an operator can switch every tool off.
-    toolsets: app.config['mcp.toolsets'] == null ? DEFAULT_TOOLSETS : list('mcp.toolsets'),
+    toolsets: app.config['mcp.toolsets'] == null ? TOOLSETS : list('mcp.toolsets'),
     readOnly: value('mcp.readOnly')?.toLowerCase() === 'true',
     nodeRepos: list('mcp.nodes.repos'),
   };

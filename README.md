@@ -159,16 +159,45 @@ Each user authenticates with a personal key, sent as `Authorization: Bearer grie
 
 On startup grieg creates the role `role:com.enonic.app.grieg.mcp`. A key is admitted only while its owner holds that role, directly or through a group, and is enabled. Both are checked on every request, so removing someone from the role or disabling them stops their key at once. A key expires 90 days after it was generated. The owner can be in any ID provider; XP builds their roles from stored memberships, which for an external ID provider are as fresh as that user's last interactive login. Roles live in `system-repo`, so the role stays after the app is uninstalled; delete it in the Users app if it is no longer wanted.
 
-Each role member manages their own key in the admin tool's MCP tab, which shows a new key once together with a ready `claude mcp add` command and `.mcp.json` block, then only its masked form, expiry and last use; admins also see and revoke every user's key there. A member who is not an admin sees only that tab. The tab uses the Keys API, which works with the XP login session that the admin tool runs in: `GET` returns the key's masked form and dates, `POST` with a JSON body generates a key, replacing the previous one, and returns the full key once, and `DELETE` removes it. An admin needs the role too to hold a key, and can also list every key (`GET ?all=true`) and revoke anyone's (`DELETE ?owner=user:<idprovider>:<login>`). A bearer that is not a `grieg_` key is compared with the deprecated shared `mcp.token` and runs as `mcp.user`, when both are set. The examples below use a personal key; a shared token goes in the same place.
+Each role member manages their own key in the admin tool's MCP tab, a three-step connect page: get a key, which is shown once and afterwards only as its masked form, expiry and last use; copy what the chosen client needs (Claude Desktop, Claude Code, or other clients); and watch the first request arrive. Right after a key is generated the page checks it every 3 seconds for five minutes, while the page is visible, and turns to "Connected" on the key's first use; a key's first use is recorded at once, later uses at most hourly. The tab also states the toolsets the server serves, whether it is read-only, and whether the workflow tools are served to you. Admins also see and revoke every user's key there. A member who is not an admin sees only that tab. The tab uses the Keys API, which works with the XP login session that the admin tool runs in: `GET` returns the key's masked form and dates, `POST` with a JSON body generates a key, replacing the previous one, and returns the full key once, and `DELETE` removes it. An admin needs the role too to hold a key, and can also list every key (`GET ?all=true`) and revoke anyone's (`DELETE ?owner=user:<idprovider>:<login>`). A bearer that is not a `grieg_` key is compared with the deprecated shared `mcp.token` and runs as `mcp.user`, when both are set. The examples below use a personal key; a shared token goes in the same place.
+
+### Claude Desktop
+
+Install the grieg extension. The MCP tab's Claude Desktop step offers `grieg.mcpb` for download; it is an app asset, built from `dev/mcp-stdio.ts` into one dependency-free file and packed with the official `mcpb` CLI. Open the file, or drag it into Desktop under Settings, Extensions, and paste the endpoint URL and your key when Desktop asks. The bundle holds neither, so one public file serves every user, and Desktop keeps the key in its encrypted settings rather than in a config file. Desktop runs the extension with its own bundled Node on macOS and Windows.
+
+Without extensions (a Linux build of Desktop, or a machine that blocks them), add an `mcp-remote` entry to `claude_desktop_config.json` instead (`~/Library/Application Support/Claude/` on macOS, `%APPDATA%\Claude\` on Windows), then quit and reopen Desktop. This stores the key in plain text and needs Node. The header has no space and the key travels through `env`, because Desktop on Windows splits arguments on spaces. Add `--allow-http` for a plain-HTTP endpoint on any host other than `localhost` or `127.0.0.1`.
+
+```json
+{
+  "mcpServers": {
+    "grieg": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "mcp-remote@0.14.3",
+        "http://localhost:8080/api/com.enonic.app.grieg:mcp",
+        "--header",
+        "Authorization:${AUTH_HEADER}"
+      ],
+      "env": { "AUTH_HEADER": "Bearer <key>" }
+    }
+  }
+}
+```
+
+Desktop needs either bridge because a custom connector added by URL is called from Anthropic's cloud, which cannot reach a `localhost` XP. Once XP is reachable from the internet over TLS, a remote connector can take the endpoint directly and the bridge is no longer needed.
 
 ### Claude Code
 
+Read the key into the environment without echoing it, so it never lands in shell history, then add the server; the shell expands the variable once, and Claude Code stores the header in your local configuration:
+
 ```bash
+read -rs GRIEG_MCP_TOKEN && export GRIEG_MCP_TOKEN   # paste the key, press Enter
 claude mcp add --transport http grieg http://localhost:8080/api/com.enonic.app.grieg:mcp \
-  --header "Authorization: Bearer <key>"
+  --header "Authorization: Bearer $GRIEG_MCP_TOKEN"
 ```
 
-Or share it through `.mcp.json`, keeping the key in the environment:
+Or share it through `.mcp.json`, with each user's key in their own environment. Claude Code expands `${GRIEG_MCP_TOKEN}` in a remote server's headers. Only a fixed set of credential variables reads as empty there: Claude Code's own (`ANTHROPIC_API_KEY`), the cloud providers', and other common ones such as `NPM_TOKEN` and `HTTPS_PROXY`:
 
 ```json
 {
@@ -186,7 +215,7 @@ Tool names are `mcp__grieg__content_search` and so on, which is what permission 
 
 ### Stdio clients
 
-Clients that only speak MCP over stdio, or setups that keep the token out of the client config, can use `dev/mcp-stdio.ts`. It is a dependency-free forwarder that POSTs each stdin message to the endpoint and writes the replies, JSON or SSE, to stdout. It needs Node 24 or newer and a checkout of this repository. Run it with `node` directly, not through `pnpm run`, which writes to stdout.
+Clients that only speak MCP over stdio, or setups that keep the token out of the client config, can use `dev/mcp-stdio.ts`, the same forwarder `grieg.mcpb` runs. It is a dependency-free forwarder that POSTs each stdin message to the endpoint and writes the replies, JSON or SSE, to stdout. It needs Node 24 or newer and a checkout of this repository. Run it with `node` directly, not through `pnpm run`, which writes to stdout.
 
 | Variable         | Meaning                                                                                                |
 | ---------------- | ------------------------------------------------------------------------------------------------------ |

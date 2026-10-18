@@ -1,4 +1,7 @@
 import { randomBytes } from 'node:crypto';
+import { existsSync, readFileSync } from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { Plugin } from 'vite-plus';
@@ -438,6 +441,8 @@ type KeyInfo = { display: string; created: string; expires: string; lastUsed?: s
 
 const DEV_OWNER = 'user:system:su';
 const KEY_TTL_MS = 90 * 24 * 60 * 60 * 1000;
+// A new key is "used" this long after it was generated, so the connection check can be watched.
+const MOCK_FIRST_USE_MS = 8000;
 
 const keys = new Map<string, KeyInfo>([
   [
@@ -461,6 +466,16 @@ function generateKey(owner: string): { key: string } & KeyInfo {
   };
   keys.set(owner, info);
   return { key: `grieg_${random}`, ...info };
+}
+
+function ownKey(owner: string): KeyInfo | null {
+  const info = keys.get(owner);
+  if (info == null) return null;
+  const firstUse = Date.parse(info.created) + MOCK_FIRST_USE_MS;
+  if (info.lastUsed == null && Date.now() >= firstUse) {
+    info.lastUsed = new Date(firstUse).toISOString();
+  }
+  return info;
 }
 
 function deleteKey(owner: string): Reply {
@@ -489,7 +504,7 @@ const HANDLERS: Record<string, Partial<Record<Method, Handler>>> = {
     GET: (params) =>
       params.get('all') === 'true'
         ? { data: { keys: [...keys].map(([owner, info]) => ({ owner, ...info })) } }
-        : { data: keys.get(DEV_OWNER) ?? null },
+        : { data: ownKey(DEV_OWNER) },
     // Like the real API, refuses a POST that is not JSON.
     POST: (_params, req) =>
       req.headers['content-type']?.split(';')[0].trim() === 'application/json'
@@ -498,6 +513,21 @@ const HANDLERS: Record<string, Partial<Record<Method, Handler>>> = {
     DELETE: (params) => deleteKey(params.get('owner') ?? DEV_OWNER),
   },
 };
+
+const BUNDLE_URL = '/grieg.mcpb';
+const BUNDLE_PATH = path.join(
+  path.dirname(fileURLToPath(import.meta.url)),
+  '../build/resources/main/assets/grieg.mcpb',
+);
+
+function sendBundle(res: ServerResponse): void {
+  if (!existsSync(BUNDLE_PATH)) {
+    send(res, 404, { status: 404, message: 'No grieg.mcpb yet: run `pnpm build` first' });
+    return;
+  }
+  res.setHeader('Content-Type', 'application/octet-stream');
+  res.end(readFileSync(BUNDLE_PATH));
+}
 
 function send(res: ServerResponse, status: number, payload: unknown): void {
   const body = JSON.stringify(payload);
@@ -512,6 +542,10 @@ export function mockApi(): Plugin {
     configureServer: (server) => {
       server.middlewares.use((req: IncomingMessage, res: ServerResponse, next: () => void) => {
         const url = req.url ?? '';
+        if (url === BUNDLE_URL) {
+          sendBundle(res);
+          return;
+        }
         if (!url.startsWith(API_PREFIX)) {
           next();
           return;

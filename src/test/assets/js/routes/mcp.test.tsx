@@ -12,7 +12,6 @@ vi.mock('../../../../main/resources/assets/js/lib/config', () => ({
   getConfig: vi.fn(() => buildConfig()),
 }));
 
-import { buildClaudeCommand } from '../../../../main/resources/assets/js/components/mcp/key-reveal';
 import { apiFetch } from '../../../../main/resources/assets/js/lib/api/client';
 
 const mockedApiFetch = vi.mocked(apiFetch);
@@ -74,7 +73,7 @@ describe('McpPage', () => {
     mockedApiFetch.mockReset();
   });
 
-  it('should generate a key with a JSON body and show it with the setup snippets', async () => {
+  it('should generate a key with a JSON body and show it once in step 1', async () => {
     const calls = mockKeysApi(null);
     const { user } = renderRoute({ initialLocation: '/mcp' });
 
@@ -83,15 +82,7 @@ describe('McpPage', () => {
     expect(calls).toContainEqual({ method: 'POST', body: {} });
     const reveal = await waitFor(() => getCard('KeyReveal'));
     expect(within(reveal).getByText(PLAINTEXT)).toBeInTheDocument();
-    expect(
-      within(reveal).getByText(
-        `claude mcp add --transport http grieg "${MCP_URI}" --header "Authorization: Bearer ${PLAINTEXT}"`,
-      ),
-    ).toBeInTheDocument();
-    const mcpJson = within(reveal).getByText(/"mcpServers"/);
-    expect(mcpJson.textContent).toContain(`"url": "${MCP_URI}"`);
-    expect(mcpJson.textContent).toContain('"Authorization": "Bearer ${GRIEG_MCP_TOKEN}"');
-    expect(mcpJson.textContent).not.toContain(PLAINTEXT);
+    expect(getCard('OwnKeyCard')).toHaveAttribute('data-done', 'true');
   });
 
   it('should drop the plaintext once the user dismisses it', async () => {
@@ -111,6 +102,14 @@ describe('McpPage', () => {
 
     await user.click(await screen.findByRole('button', { name: 'Generate key' }));
     await waitFor(() => getCard('KeyReveal'));
+    expect(
+      JSON.stringify(
+        queryClient
+          .getQueryCache()
+          .getAll()
+          .map((query) => query.state.data),
+      ),
+    ).not.toContain(PLAINTEXT);
 
     await router.navigate({ to: '/crons' });
     await waitFor(() => expect(document.querySelector('[data-component="McpPage"]')).toBeNull());
@@ -125,7 +124,7 @@ describe('McpPage', () => {
     mockKeysApi(null);
     const { user, queryClient } = renderRoute({ initialLocation: '/mcp' });
     await user.click(await screen.findByRole('button', { name: 'Generate key' }));
-    await screen.findByText(PLAINTEXT);
+    await waitFor(() => getCard('KeyReveal'));
 
     mockKeysApi(buildKey(90, { display: 'grieg_BBBB…BBBB', created: '2026-10-01T13:00:00Z' }));
     await queryClient.invalidateQueries({ queryKey: ['keys'] });
@@ -203,7 +202,7 @@ describe('McpPage', () => {
     );
 
     expect(calls).toContainEqual({ method: 'POST', body: {} });
-    expect(await screen.findByText(PLAINTEXT)).toBeInTheDocument();
+    expect(within(await waitFor(() => getCard('KeyReveal'))).getByText(PLAINTEXT)).toBeVisible();
   });
 
   it('should delete only after confirmation', async () => {
@@ -262,7 +261,7 @@ describe('McpPage', () => {
       within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Regenerate' }),
     );
 
-    expect(await screen.findByText(PLAINTEXT)).toBeInTheDocument();
+    expect(within(await waitFor(() => getCard('KeyReveal'))).getByText(PLAINTEXT)).toBeVisible();
     expect(screen.queryByText('Delete failed')).not.toBeInTheDocument();
     expect(calls).toContainEqual({ method: 'POST', body: {} });
   });
@@ -307,6 +306,296 @@ describe('McpPage', () => {
   });
 });
 
+describe('client setup', () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(NOW);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    mockedApiFetch.mockReset();
+  });
+
+  async function generate(): Promise<ReturnType<typeof renderRoute>> {
+    mockKeysApi(null);
+    const rendered = renderRoute({ initialLocation: '/mcp' });
+    await rendered.user.click(await screen.findByRole('button', { name: 'Generate key' }));
+    await waitFor(() => getCard('KeyReveal'));
+    return rendered;
+  }
+
+  it('should open on Claude Desktop with the bundle and both values to paste', async () => {
+    await generate();
+    const setup = getCard('DesktopSetup');
+
+    expect(within(setup).getByRole('link', { name: 'Download grieg.mcpb' })).toHaveAttribute(
+      'href',
+      '/assets/grieg.mcpb',
+    );
+    const fields = [...setup.querySelectorAll('[data-component="CopyField"]')];
+    expect(fields.map((field) => field.querySelector('code')?.textContent)).toEqual([
+      MCP_URI,
+      PLAINTEXT,
+    ]);
+    const fallback = within(setup).getByText(/"mcpServers"/).textContent ?? '';
+    expect(JSON.parse(fallback).mcpServers.grieg).toEqual({
+      command: 'npx',
+      args: ['-y', 'mcp-remote@0.14.3', MCP_URI, '--header', 'Authorization:${AUTH_HEADER}'],
+      env: { AUTH_HEADER: `Bearer ${PLAINTEXT}` },
+    });
+  });
+
+  it('should keep the key out of every Claude Code command', async () => {
+    const { user } = await generate();
+
+    await user.click(screen.getByRole('tab', { name: 'Claude Code' }));
+    const setup = getCard('CodeSetup');
+
+    expect(
+      within(setup).getByText('read -rs GRIEG_MCP_TOKEN && export GRIEG_MCP_TOKEN'),
+    ).toBeVisible();
+    const command = within(setup).getByText(/^claude mcp add/).textContent;
+    expect(command).toBe(
+      `claude mcp add --transport http grieg "${MCP_URI}" \\\n  --header "Authorization: Bearer $GRIEG_MCP_TOKEN"`,
+    );
+    const mcpJson = within(setup).getByText(/"mcpServers"/).textContent;
+    expect(mcpJson).toContain('"Authorization": "Bearer ${GRIEG_MCP_TOKEN}"');
+    for (const pre of setup.querySelectorAll('pre')) {
+      expect(pre.textContent).not.toContain(PLAINTEXT);
+    }
+  });
+
+  it('should put the key into the configs of other clients while it is shown', async () => {
+    const { user } = await generate();
+
+    await user.click(screen.getByRole('tab', { name: 'Other clients' }));
+    const setup = getCard('OtherSetup');
+
+    expect(within(setup).getByText(/"mcpServers"[\s\S]*"headers"/).textContent).toContain(
+      `Bearer ${PLAINTEXT}`,
+    );
+    expect(within(setup).getByText(/"servers"/).textContent).toContain(`Bearer ${PLAINTEXT}`);
+    expect(within(setup).getByText(/"MCP_TOKEN"/).textContent).toContain(PLAINTEXT);
+    const curl = within(setup).getByText(/^curl/).textContent;
+    expect(curl).toContain('$GRIEG_MCP_TOKEN');
+    expect(curl).not.toContain(PLAINTEXT);
+  });
+
+  it('should show the same instructions with a placeholder once the key is no longer shown', async () => {
+    mockKeysApi(buildKey(40));
+    const { user } = renderRoute({ initialLocation: '/mcp' });
+    const desktop = await waitFor(() => getCard('DesktopSetup'));
+
+    expect(within(desktop).getByText('The key you saved in step 1')).toBeVisible();
+    expect(within(desktop).getByText(/"AUTH_HEADER": "Bearer <your key>"/)).toBeInTheDocument();
+    const keyField = within(desktop)
+      .getByText('The key you saved in step 1')
+      .closest('[data-component="CopyField"]') as HTMLElement;
+    expect(within(keyField).queryByRole('button')).toBeNull();
+
+    await user.click(screen.getByRole('tab', { name: 'Other clients' }));
+    expect(within(getCard('OtherSetup')).getByText(/"servers"/).textContent).toContain(
+      'Bearer <your key>',
+    );
+  });
+
+  it('should hand the plaintext to no snippet once the user dismisses it', async () => {
+    const { user } = await generate();
+
+    await user.click(screen.getByRole('button', { name: 'I have saved the key' }));
+
+    expect(await screen.findByText('grieg_AAAA…AAAA')).toBeInTheDocument();
+    for (const tab of ['Claude Desktop', 'Claude Code', 'Other clients']) {
+      await user.click(screen.getByRole('tab', { name: tab }));
+      expect(document.body.textContent).not.toContain(PLAINTEXT);
+    }
+  });
+
+  it('should state what the server serves this user', async () => {
+    mockKeysApi(null);
+    renderRoute({
+      initialLocation: '/mcp',
+      config: buildConfig({
+        access: { admin: false, mcp: true },
+        mcp: { ...buildConfig().mcp, readOnly: true, workflowTools: false },
+      }),
+    });
+    const check = await waitFor(() => getCard('ConnectionCard'));
+
+    expect(within(check).getByText(MCP_URI)).toBeVisible();
+    expect(within(check).getByRole('button', { name: 'Copy' })).toBeVisible();
+    expect(within(check).getByText('content')).toBeVisible();
+    expect(within(check).getByText('Read-only: the write tools are switched off')).toBeVisible();
+    expect(within(check).getByText('Administrators only')).toBeVisible();
+  });
+
+  it('should say the workflow tools are off when the server does not serve them', async () => {
+    mockKeysApi(null);
+    renderRoute({
+      initialLocation: '/mcp',
+      config: buildConfig({ mcp: { ...buildConfig().mcp, toolsets: ['content'] } }),
+    });
+
+    const check = await waitFor(() => getCard('ConnectionCard'));
+    expect(within(check).getByText('Switched off on this server')).toBeVisible();
+    expect(within(check).queryByText('nodes')).not.toBeInTheDocument();
+  });
+});
+
+describe('connection check', () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(NOW);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    mockedApiFetch.mockReset();
+    Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
+  });
+
+  function ownKeyReads(calls: FetchOptions[]): number {
+    return calls.filter((call) => call.method == null && call.params == null).length;
+  }
+
+  function markUsed(lastUsed: string): void {
+    const serve = mockedApiFetch.getMockImplementation();
+    mockedApiFetch.mockImplementation(async (url: string, options: FetchOptions = {}) => {
+      const result = await serve?.(url, options);
+      const ownRead = url === KEYS_URI && options.method == null && options.params == null;
+      return ownRead && result != null ? { ...(result as KeyInfo), lastUsed } : result;
+    });
+  }
+
+  async function generate(calls: FetchOptions[]): Promise<number> {
+    const { user } = renderRoute({ initialLocation: '/mcp' });
+    await user.click(await screen.findByRole('button', { name: 'Generate key' }));
+    await screen.findByText('Waiting for the first request…');
+    return ownKeyReads(calls);
+  }
+
+  it('should poll until the first request arrives, then say connected and stop', async () => {
+    const calls = mockKeysApi(null);
+    const before = await generate(calls);
+
+    await vi.advanceTimersByTimeAsync(3000);
+    expect(ownKeyReads(calls)).toBe(before + 1);
+
+    markUsed('2026-10-01T12:00:05Z');
+    await vi.advanceTimersByTimeAsync(3000);
+
+    const check = getCard('ConnectionCard');
+    expect(await within(check).findByText(/^Connected Oct 1, 2026/)).toBeVisible();
+    expect(check).toHaveAttribute('data-done', 'true');
+    expect(getCard('ClientSetupCard')).toHaveAttribute('data-done', 'true');
+    const after = ownKeyReads(calls);
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(ownKeyReads(calls)).toBe(after);
+  });
+
+  it('should stop polling five minutes after the key was generated', async () => {
+    const calls = mockKeysApi(null);
+    await generate(calls);
+
+    await vi.advanceTimersByTimeAsync(5 * 60 * 1000 - 10_000);
+    expect(screen.getByText('Waiting for the first request…')).toBeVisible();
+    await vi.advanceTimersByTimeAsync(10_000);
+
+    expect(await screen.findByText('No client has used this key yet')).toBeVisible();
+    const after = ownKeyReads(calls);
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(ownKeyReads(calls)).toBe(after);
+  });
+
+  it('should not poll while the page is hidden', async () => {
+    const calls = mockKeysApi(null);
+    const before = await generate(calls);
+
+    Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true });
+    document.dispatchEvent(new Event('visibilitychange'));
+    await vi.advanceTimersByTimeAsync(30_000);
+
+    expect(ownKeyReads(calls)).toBe(before);
+
+    Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
+    document.dispatchEvent(new Event('visibilitychange'));
+    await vi.advanceTimersByTimeAsync(3000);
+    expect(ownKeyReads(calls)).toBeGreaterThan(before);
+  });
+
+  it('should check again only when asked for a key that has never been used', async () => {
+    const calls = mockKeysApi(buildKey(40));
+    const { user } = renderRoute({ initialLocation: '/mcp' });
+    await screen.findByText('No client has used this key yet');
+    const before = ownKeyReads(calls);
+
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(ownKeyReads(calls)).toBe(before);
+
+    markUsed('2026-09-30T08:00:00Z');
+    await user.click(screen.getByRole('button', { name: 'Check again' }));
+    expect(await screen.findByText(/^Last used Sep 30, 2026/)).toBeVisible();
+  });
+
+  it('should show when an older key was last used, without polling', async () => {
+    const calls = mockKeysApi(buildKey(40, { lastUsed: '2026-09-30T08:00:00Z' }));
+    renderRoute({ initialLocation: '/mcp' });
+
+    expect(await screen.findByText(/^Last used Sep 30, 2026/)).toBeVisible();
+    const before = ownKeyReads(calls);
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(ownKeyReads(calls)).toBe(before);
+  });
+
+  it('should not call a key regenerated elsewhere connected', async () => {
+    await generate(mockKeysApi(null));
+
+    mockKeysApi(
+      buildKey(90, {
+        display: 'grieg_BBBB…BBBB',
+        created: '2026-10-01T12:30:00Z',
+        lastUsed: '2026-10-01T12:31:00Z',
+      }),
+    );
+    await vi.advanceTimersByTimeAsync(3000);
+
+    expect(await screen.findByText(/^Last used Oct 1, 2026/)).toBeVisible();
+    expect(screen.queryByText(/^Connected/)).not.toBeInTheDocument();
+  });
+
+  it('should stop polling once the key was regenerated elsewhere', async () => {
+    await generate(mockKeysApi(null));
+
+    const calls = mockKeysApi(
+      buildKey(90, { display: 'grieg_BBBB…BBBB', created: '2026-10-01T12:30:00Z' }),
+    );
+    await vi.advanceTimersByTimeAsync(3000);
+    expect(await screen.findByText('No client has used this key yet')).toBeVisible();
+
+    const after = ownKeyReads(calls);
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(ownKeyReads(calls)).toBe(after);
+  });
+
+  it('should say the check failed and offer a retry when the key cannot be read', async () => {
+    mockedApiFetch.mockRejectedValue({ status: 500, message: 'Server error' });
+    renderRoute({ initialLocation: '/mcp' });
+
+    const check = await waitFor(() => getCard('ConnectionCard'));
+    expect(await within(check).findByText('Something went wrong')).toBeVisible();
+    expect(within(check).getByRole('button', { name: 'Retry' })).toBeVisible();
+  });
+
+  it('should ask for a key first when there is none', async () => {
+    mockKeysApi(null);
+    renderRoute({ initialLocation: '/mcp' });
+
+    expect(await screen.findByText('No key yet')).toBeVisible();
+    expect(getCard('ConnectionCard')).not.toHaveAttribute('data-done');
+  });
+});
+
 describe('navigation', () => {
   afterEach(() => {
     mockedApiFetch.mockReset();
@@ -345,25 +634,5 @@ describe('navigation', () => {
       .getAllByRole('link')
       .map((link) => link.textContent);
     expect(links).toEqual(['Workflows', 'Schedules', 'System', 'MCP']);
-  });
-});
-
-describe('buildClaudeCommand', () => {
-  it.each([
-    'http://localhost:8080/api/com.enonic.app.grieg:mcp',
-    'https://cms.example.com/api/com.enonic.app.grieg:mcp',
-    'http://[::1]:8080/api/com.enonic.app.grieg:mcp',
-  ])('should keep the plain endpoint %s', (url) => {
-    expect(buildClaudeCommand(url, 'grieg_x')).toContain(` "${url}" `);
-  });
-
-  it.each([
-    'http://$(id).example/api/com.enonic.app.grieg:mcp',
-    'http://a`id`.example/api/com.enonic.app.grieg:mcp',
-    'http://a"b.example/api/com.enonic.app.grieg:mcp',
-  ])('should leave a placeholder for the shell-unsafe endpoint %s', (url) => {
-    const command = buildClaudeCommand(url, 'grieg_x');
-    expect(command).toContain(' "<endpoint URL>" ');
-    expect(command).not.toContain('example');
   });
 });

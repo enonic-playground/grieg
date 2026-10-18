@@ -1,5 +1,6 @@
 import * as adminLib from '/lib/xp/admin';
 import * as ioLib from '/lib/xp/io';
+import { readFileSync } from 'node:fs';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { Request } from '@enonic-types/core';
@@ -224,5 +225,18 @@ describe('cards', () => {
     expect(warning.mock.calls.filter(([line]) => String(line).includes('no cards'))).toHaveLength(
       1,
     );
+  });
+});
+
+describe('grieg.mcpb manifest', () => {
+  it('should list exactly the tools the server serves an admin with every toolset', () => {
+    authenticate.mockReturnValue({ login: 'alice', idProvider: 'system', admin: true });
+    const manifest = JSON.parse(
+      readFileSync(new URL('../../../dev/mcpb/manifest.json', import.meta.url), 'utf8'),
+    ) as {
+      tools: { name: string }[];
+    };
+
+    expect(manifest.tools.map((tool) => tool.name).toSorted()).toEqual(listedTools(KEY).toSorted());
   });
 });
