@@ -114,6 +114,23 @@ function toRunDetail(run: Run, adminUrl: string): JsonObject {
   };
 }
 
+// On GraalJS, context `run()` returns a key holding `undefined` as `null`, so every optional
+// field is written as an explicit `null` that the schema allows.
+function toCronResult(job: CronJob): JsonObject {
+  return {
+    name: job.name,
+    description: job.description ?? null,
+    enabled: job.enabled,
+    cron: job.cron ?? null,
+    timeZone: job.timeZone ?? null,
+    descriptor: job.descriptor,
+    user: job.user ?? null,
+    workflowId: job.workflowId ?? null,
+    lastRun: job.lastRun ?? null,
+    lastTaskId: job.lastTaskId ?? null,
+  };
+}
+
 //
 // * Schemas
 //
@@ -149,23 +166,25 @@ const TRUNCATED_SCHEMA = {
 
 const CRON_JOB_PROPERTIES = {
   name: { type: 'string' },
-  description: { type: 'string' },
+  description: NULLABLE_STRING,
   enabled: { type: 'boolean' },
-  cron: { type: 'string', description: 'Five-field cron; absent for a one-time job' },
-  timeZone: { type: 'string' },
+  cron: { ...NULLABLE_STRING, description: 'Five-field cron; null for a one-time job' },
+  timeZone: NULLABLE_STRING,
   descriptor: { type: 'string', description: 'Task the job runs' },
-  user: { type: 'string', description: 'User key the job runs as' },
-  workflowId: { type: 'string', description: 'Set on workflow schedules only' },
+  user: { ...NULLABLE_STRING, description: 'User key the job runs as' },
+  workflowId: { ...NULLABLE_STRING, description: 'Set on workflow schedules only' },
   workflowName: { type: 'string', description: 'Display name of the scheduled workflow' },
-  lastRun: { type: 'string', description: 'When the job last fired' },
-  lastTaskId: { type: 'string' },
+  lastRun: { ...NULLABLE_STRING, description: 'When the job last fired; null if never' },
+  lastTaskId: NULLABLE_STRING,
   adminUrl: ADMIN_URL_SCHEMA,
 };
 
 const CRON_JOB_SCHEMA = {
   type: 'object',
   properties: CRON_JOB_PROPERTIES,
-  required: ['name', 'enabled', 'descriptor'],
+  required: Object.keys(CRON_JOB_PROPERTIES).filter(
+    (key) => key !== 'workflowName' && key !== 'adminUrl',
+  ),
 };
 
 const READ_ANNOTATIONS = { readOnlyHint: true, idempotentHint: true, openWorldHint: false };
@@ -217,9 +236,10 @@ export function createWorkflowTools(config: ToolsConfig, toolBase: string): Tool
   function withWorkflowNames(jobs: CronJob[]): JsonObject[] {
     const names = new Map(list().map((workflow) => [workflow.id, workflow.displayName]));
     return jobs.map((job) => {
+      const result = toCronResult(job);
       const workflowName = job.workflowId == null ? undefined : names.get(job.workflowId);
-      if (job.workflowId == null || workflowName == null) return job;
-      return { ...job, workflowName, adminUrl: adminUrl(job.workflowId) };
+      if (job.workflowId == null || workflowName == null) return result;
+      return { ...result, workflowName, adminUrl: adminUrl(job.workflowId) };
     });
   }
 

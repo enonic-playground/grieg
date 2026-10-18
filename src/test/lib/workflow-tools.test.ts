@@ -32,6 +32,10 @@ vi.mock('../../main/resources/lib/run-start', () => ({ startRun: vi.fn() }));
 vi.mock('../../main/resources/lib/time-zone', () => ({ isTimeZone: vi.fn() }));
 
 type JsonObject = Record<string, unknown>;
+type Schema = {
+  properties: Record<string, { type: unknown; items: Schema }>;
+  required: string[];
+};
 
 const auditLog = vi.mocked(auditLib.log);
 const hasRole = vi.mocked(authLib.hasRole);
@@ -416,6 +420,36 @@ describe('cron_list', () => {
     expect(jobs[1]).not.toHaveProperty('adminUrl');
     expect(jobs[1]).not.toHaveProperty('workflowName');
   });
+
+  it('should write every missing optional field as null, which the schema allows', () => {
+    listJobs.mockReturnValue([
+      {
+        ...FOREIGN,
+        user: undefined,
+        schedule: { type: 'ONE_TIME', value: '2026-11-01T00:00:00Z' },
+      },
+    ]);
+
+    const { jobs } = value(tool('cron_list').handler({})) as { jobs: JsonObject[] };
+
+    expect(jobs[0]).toEqual({
+      name: 'purge-trash',
+      description: null,
+      enabled: true,
+      cron: null,
+      timeZone: null,
+      descriptor: 'com.example.app:purge',
+      user: null,
+      workflowId: null,
+      lastRun: null,
+      lastTaskId: null,
+    });
+    const schema = (tool('cron_list').outputSchema as Schema).properties.jobs.items;
+    expect(Object.keys(jobs[0]).sort()).toEqual([...schema.required].sort());
+    for (const [key, field] of Object.entries(jobs[0])) {
+      if (field === null) expect(schema.properties[key].type).toContain('null');
+    }
+  });
 });
 
 describe('cron_set', () => {
@@ -467,7 +501,12 @@ describe('cron_set', () => {
     const result = value(tool('cron_set').handler({ name: 'purge-trash', enabled: false }));
 
     expect(edited(FOREIGN)).toMatchObject({ enabled: false, user: 'user:system:cleanup' });
-    expect(result).toMatchObject({ name: 'purge-trash', user: 'user:system:cleanup' });
+    expect(result).toMatchObject({
+      name: 'purge-trash',
+      user: 'user:system:cleanup',
+      workflowId: null,
+      lastRun: null,
+    });
     expect(auditLog.mock.calls[0][0]).toMatchObject({
       objects: ['scheduler:purge-trash'],
       data: { fields: ['enabled'] },

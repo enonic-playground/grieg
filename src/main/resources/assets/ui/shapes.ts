@@ -61,13 +61,14 @@ export type CronJob = {
   name: string;
   enabled: boolean;
   descriptor: string;
-  description?: string;
-  cron?: string;
-  timeZone?: string;
-  user?: string;
-  workflowId?: string;
+  description: string | null;
+  cron: string | null;
+  timeZone: string | null;
+  user: string | null;
+  workflowId: string | null;
   workflowName?: string;
-  lastRun?: string;
+  lastRun: string | null;
+  lastTaskId: string | null;
   adminUrl?: string;
 };
 
