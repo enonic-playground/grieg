@@ -190,10 +190,22 @@ const READ_TOOLS: Record<string, (args: Json) => ToolResult> = {
     ];
     return ok({
       jobs: ordered.map((job) => {
+        const result = {
+          name: job.name,
+          description: job.description ?? null,
+          enabled: job.enabled,
+          cron: job.cron ?? null,
+          timeZone: job.timeZone ?? null,
+          descriptor: job.descriptor,
+          user: job.user ?? null,
+          workflowId: job.workflowId ?? null,
+          lastRun: job.lastRun ?? null,
+          lastTaskId: null,
+        };
         const workflow = workflows.find((candidate) => candidate.id === job.workflowId);
         return workflow == null
-          ? job
-          : { ...job, workflowName: workflow.displayName, adminUrl: adminUrl(workflow.id) };
+          ? result
+          : { ...result, workflowName: workflow.displayName, adminUrl: adminUrl(workflow.id) };
       }),
     });
   },

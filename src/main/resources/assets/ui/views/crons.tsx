@@ -81,7 +81,7 @@ const CronRow = ({ job }: { job: CronJob }): ReactElement => {
       <Meta>
         {job.user != null && <span title={job.user}>as {shortUser(job.user)}</span>}
         {job.user != null && <Dot />}
-        <span title={job.lastRun}>
+        <span title={job.lastRun ?? undefined}>
           {job.lastRun == null ? 'Never ran' : `Last ran ${relativeTime(job.lastRun, locale)}`}
         </span>
         {job.workflowId == null && (
