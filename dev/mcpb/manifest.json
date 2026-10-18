@@ -1,0 +1,80 @@
+{
+  "$schema": "../../node_modules/@anthropic-ai/mcpb/dist/mcpb-manifest-v0.3.schema.json",
+  "manifest_version": "0.3",
+  "name": "grieg",
+  "display_name": "Grieg",
+  "description": "Enonic XP content, repository nodes, workflows and schedules, through the grieg MCP endpoint of your XP server.",
+  "long_description": "Connects Claude Desktop to the grieg app on an Enonic XP server. Every request goes to the endpoint you enter, with your personal key, and every tool runs as you, with your permissions. The bundle holds no key and no server address: both are asked for on install, and the key is kept in Desktop's encrypted settings.",
+  "author": {
+    "name": "Enonic",
+    "url": "https://enonic.com"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/enonic-playground/grieg"
+  },
+  "homepage": "https://github.com/enonic-playground/grieg",
+  "documentation": "https://github.com/enonic-playground/grieg#claude-desktop",
+  "icon": "icon.png",
+  "license": "MIT",
+  "server": {
+    "type": "node",
+    "entry_point": "server/index.js",
+    "mcp_config": {
+      "command": "node",
+      "args": ["${__dirname}/server/index.js"],
+      "env": {
+        "MCP_URL": "${user_config.url}",
+        "MCP_TOKEN": "${user_config.key}"
+      }
+    }
+  },
+  "user_config": {
+    "url": {
+      "type": "string",
+      "title": "grieg MCP endpoint",
+      "description": "The endpoint URL shown in the MCP tab of the Grieg admin tool.",
+      "required": true
+    },
+    "key": {
+      "type": "string",
+      "title": "Personal key",
+      "description": "Your grieg_… key from the MCP tab of the Grieg admin tool.",
+      "required": true,
+      "sensitive": true
+    }
+  },
+  "tools": [
+    {
+      "name": "content_search",
+      "description": "Search content by text, or list the children of a path"
+    },
+    { "name": "content_get", "description": "One content item by id or path" },
+    { "name": "content_type_get", "description": "A content type's fields as dot paths" },
+    {
+      "name": "content_update",
+      "description": "Change a content item's display name, language or data fields"
+    },
+    { "name": "content_create", "description": "Create a content item on draft, in progress" },
+    { "name": "node_repos", "description": "Repositories and branches you can read" },
+    { "name": "node_query", "description": "Query repository nodes" },
+    { "name": "node_get", "description": "One node by id or path" },
+    { "name": "node_create", "description": "Create a node under a parent" },
+    { "name": "node_update", "description": "Set and unset properties on a node" },
+    { "name": "workflow_list", "description": "Every workflow with its schedule and last run" },
+    { "name": "workflow_run", "description": "Start a workflow run" },
+    { "name": "run_list", "description": "A workflow's runs, newest first" },
+    { "name": "run_get", "description": "One run with each step's output" },
+    { "name": "cron_list", "description": "Every scheduled job on the server" },
+    { "name": "cron_set", "description": "Create or change a workflow schedule" },
+    { "name": "cron_delete", "description": "Delete a workflow schedule" }
+  ],
+  "tools_generated": true,
+  "keywords": ["enonic", "xp", "cms", "content", "workflows"],
+  "compatibility": {
+    "platforms": ["darwin", "win32"],
+    "runtimes": {
+      "node": ">=18.0.0"
+    }
+  }
+}

@@ -1,26 +1,18 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import type { KeyInfo } from '../../lib/api/keys';
 import type { ApiError } from '../../types/api';
+import type { OwnKey } from './use-own-key';
 import type { ReactElement } from 'react';
 
-import {
-  ALL_KEYS_QUERY_KEY,
-  deleteOwnKey,
-  KEYS_QUERY_KEY,
-  generateKey,
-  OWN_KEY_QUERY_KEY,
-  ownKeyQueryOptions,
-} from '../../lib/api/keys';
 import { formatDate, formatDateTime, getExpiry } from '../../lib/expiry';
 import { cn } from '../../lib/utils';
 import { PageError, PageSkeleton } from '../page';
 import { Button } from '../ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
 import { ConfirmDialog } from '../ui/confirm-dialog';
 import { KeyReveal } from './key-reveal';
+import { StepCard } from './step-card';
 
 type PendingConfirm = 'regenerate' | 'delete' | null;
 
@@ -61,41 +53,16 @@ const KeyDetails = ({ info }: KeyDetailsProps): ReactElement => {
 };
 
 export type OwnKeyCardProps = {
-  mcpUri: string;
+  ownKey: OwnKey;
 };
 
 const OWN_KEY_CARD_NAME = 'OwnKeyCard';
 
-export const OwnKeyCard = ({ mcpUri }: OwnKeyCardProps): ReactElement => {
+export const OwnKeyCard = ({ ownKey }: OwnKeyCardProps): ReactElement => {
   const { t, i18n } = useTranslation();
-  const queryClient = useQueryClient();
-  const { data, isPending, error } = useQuery(ownKeyQueryOptions());
+  const { query, generate, remove, revealed } = ownKey;
+  const { data, isPending, error } = query;
   const [confirm, setConfirm] = useState<PendingConfirm>(null);
-
-  // A fetch still in flight would overwrite what a mutation writes into the cache.
-  const cancelOwnKeyFetch = (): Promise<void> =>
-    queryClient.cancelQueries({ queryKey: OWN_KEY_QUERY_KEY });
-
-  // gcTime 0 drops the plaintext from the mutation cache as soon as this card unmounts.
-  const generate = useMutation({
-    mutationFn: generateKey,
-    gcTime: 0,
-    onMutate: cancelOwnKeyFetch,
-    onSuccess: ({ key: _key, ...info }) => {
-      queryClient.setQueryData(OWN_KEY_QUERY_KEY, info);
-    },
-    onSettled: () => queryClient.invalidateQueries({ queryKey: ALL_KEYS_QUERY_KEY }),
-  });
-
-  // Settles by refetching, so a key already gone elsewhere (404) leaves the view too.
-  const remove = useMutation({
-    mutationFn: deleteOwnKey,
-    onMutate: cancelOwnKeyFetch,
-    onSuccess: () => {
-      queryClient.setQueryData(OWN_KEY_QUERY_KEY, null);
-    },
-    onSettled: () => queryClient.invalidateQueries({ queryKey: KEYS_QUERY_KEY }),
-  });
 
   const closeConfirm = (): void => setConfirm(null);
 
@@ -114,16 +81,7 @@ export const OwnKeyCard = ({ mcpUri }: OwnKeyCardProps): ReactElement => {
     if (isPending) return <PageSkeleton />;
     if (error != null) return <PageError message={t('common.state.error')} />;
 
-    // The plaintext shows only while it still matches the stored key, so a key regenerated or
-    // revoked elsewhere hides it.
-    const generated = generate.data;
-    if (
-      generated != null &&
-      data?.created === generated.created &&
-      data.display === generated.display
-    ) {
-      return <KeyReveal apiKey={generated.key} mcpUri={mcpUri} onDone={generate.reset} />;
-    }
+    if (revealed != null) return <KeyReveal apiKey={revealed} onDone={generate.reset} />;
 
     const generateButton = (
       <Button variant="primary" onClick={runGenerate} disabled={generate.isPending}>
@@ -166,20 +124,22 @@ export const OwnKeyCard = ({ mcpUri }: OwnKeyCardProps): ReactElement => {
 
   const mutationError = errorMessage(generate.error) ?? errorMessage(remove.error);
 
+  const hasKey = data != null && !getExpiry(data.expires).expired;
+
   return (
-    <Card data-component={OWN_KEY_CARD_NAME}>
-      <CardHeader className="p-5">
-        <CardTitle className="text-sm">{t('mcp.key.title')}</CardTitle>
-        <CardDescription className="text-xs">{t('mcp.key.description')}</CardDescription>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-3 p-5 pt-0">
-        {renderBody()}
-        {mutationError != null && (
-          <p role="alert" className="text-destructive text-xs">
-            {mutationError}
-          </p>
-        )}
-      </CardContent>
+    <StepCard
+      name={OWN_KEY_CARD_NAME}
+      step={1}
+      title={t('mcp.key.title')}
+      description={t('mcp.key.description')}
+      done={hasKey}
+    >
+      {renderBody()}
+      {mutationError != null && (
+        <p role="alert" className="text-destructive text-xs">
+          {mutationError}
+        </p>
+      )}
 
       {confirm != null && (
         <ConfirmDialog
@@ -193,7 +153,7 @@ export const OwnKeyCard = ({ mcpUri }: OwnKeyCardProps): ReactElement => {
           onCancel={closeConfirm}
         />
       )}
-    </Card>
+    </StepCard>
   );
 };
 

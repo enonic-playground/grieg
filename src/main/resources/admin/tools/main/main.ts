@@ -7,7 +7,9 @@ import { apiUrl, assetUrl } from '/lib/xp/portal';
 import type { Request, Response } from '@enonic-types/core';
 
 import { originOf } from '../../../lib/access';
-import { MCP_ROLE_NAME } from '../../../lib/keys';
+import { getMcpConfig, TOOLSETS } from '../../../lib/config';
+import { isAdmin, MCP_ROLE_NAME } from '../../../lib/keys';
+import { WORKFLOWS_TOOLSET } from '../../../lib/workflow-tools';
 
 const PHRASE_BUNDLE = 'i18n/app';
 const DEFAULT_LOCALE = 'en';
@@ -22,8 +24,15 @@ type GriegConfig = {
     crons: string;
     keys: string;
   };
-  // Absolute: the MCP API is mounted on `web`, outside the admin tool.
-  mcpUri: string;
+  mcp: {
+    // Absolute: the MCP API is mounted on `web`, outside the admin tool.
+    uri: string;
+    bundleUri: string;
+    toolsets: string[];
+    readOnly: boolean;
+    // Whether the current user, acting through their own key, is served the workflow tools.
+    workflowTools: boolean;
+  };
   launcherUri: string;
   // Cosmetic: lets the client hide routes. Every API checks access itself.
   access: {
@@ -37,6 +46,18 @@ type GriegConfig = {
   locale: string;
   phrases: Record<string, string>;
 };
+
+function buildMcpFacts(req: Request, user: string | undefined): GriegConfig['mcp'] {
+  const { toolsets, readOnly } = getMcpConfig();
+  const served = TOOLSETS.filter((name) => toolsets.includes(name));
+  return {
+    uri: `${originOf(req.scheme, req.host, req.port)}/api/${app.name}:mcp`,
+    bundleUri: assetUrl({ path: 'grieg.mcpb' }),
+    toolsets: served,
+    readOnly,
+    workflowTools: served.includes(WORKFLOWS_TOOLSET) && user != null && isAdmin(user),
+  };
+}
 
 function buildConfig(req: Request): GriegConfig {
   const currentUser = getUser();
@@ -53,7 +74,7 @@ function buildConfig(req: Request): GriegConfig {
       crons: apiUrl({ api: 'crons', type: 'server' }),
       keys: apiUrl({ api: 'keys', type: 'server' }),
     },
-    mcpUri: `${originOf(req.scheme, req.host, req.port)}/api/${app.name}:mcp`,
+    mcp: buildMcpFacts(req, currentUser?.key),
     launcherUri: extensionUrl({
       application: 'com.enonic.xp.app.main',
       extension: 'launcher',

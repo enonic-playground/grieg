@@ -6,10 +6,11 @@ import { fileURLToPath } from 'node:url';
 import { viteSingleFile } from 'vite-plugin-singlefile';
 import { defineConfig, type ConfigEnv, type Plugin, type UserConfig } from 'vite-plus';
 
+import { mcpbConfig } from './dev/mcpb/bundle';
 import { mockApi } from './dev/mock-api';
 import { mockMcp } from './dev/mock-mcp';
 
-const allowedTargets = ['js', 'css', 'ui'] as const;
+const allowedTargets = ['js', 'css', 'ui', 'mcpb'] as const;
 type BuildTarget = (typeof allowedTargets)[number];
 
 const isBuildTarget = (target: string | undefined): target is BuildTarget =>
@@ -27,6 +28,8 @@ const OUT_PATH = path.join(__dirname, 'build/resources/main/assets');
 // The MCP Apps card: one self-contained HTML file, outside `assets/` so XP never serves it.
 const UI_IN_PATH = path.join(IN_PATH, 'ui');
 const UI_OUT_PATH = path.join(__dirname, 'build/resources/main/ui');
+// Staged for `mcpb pack`, which writes grieg.mcpb into OUT_PATH.
+const MCPB_OUT_PATH = path.join(__dirname, 'build/mcpb');
 // Dev harness: the real React app served without XP, against mocked APIs. Lives outside
 // src/main/resources so Gradle's processResources never ships it.
 const DEV_PATH = path.join(__dirname, 'dev');
@@ -125,6 +128,10 @@ const TARGET_CONFIGS: Record<BuildTarget, UserConfig> = {
         input: path.join(UI_IN_PATH, 'card.html'),
       },
     },
+  },
+  mcpb: {
+    ...(isProduction && { logLevel: 'warn' }),
+    ...mcpbConfig(MCPB_OUT_PATH),
   },
 };
 

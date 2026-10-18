@@ -19,6 +19,7 @@ pnpm fix                        # Format + auto-fix lint
 pnpm test                       # Vitest only
 pnpm dev                        # React app on :5275 against mocked APIs, no XP (see dev/)
 pnpm build:dev:ui               # MCP card only; :5275/cards.html then hosts it (see Client code)
+pnpm build:dev:mcpb             # grieg.mcpb only, the Claude Desktop extension (see Client code)
 pnpm conformance                # MCP conformance suite against a running XP (manual)
 node dev/mcp-stdio.ts           # stdio→HTTP MCP forwarder for stdio-only clients (README → MCP)
 ```
@@ -32,6 +33,9 @@ node dev/mcp-stdio.ts           # stdio→HTTP MCP forwarder for stdio-only clie
   README → Conformance covers `--update` and the vhost caveat.
 - `dev/mcp-stdio.ts` keeps its header, era and error logic in `dev/mcp-stdio-protocol.ts`, which
   `src/test/dev/` runs against `lib/mcp.ts` `handle()`. Change both when the header rules change.
+- `pnpm build`, `build:prod` and Gradle's `pnpmBuild` run every `build:dev:*` or `build:prod:*`
+  script, in parallel. A new build output gets a script under that pattern, and a helper it calls
+  (such as `pack:mcpb`) a name outside it.
 
 ## Server code
 
@@ -80,6 +84,15 @@ so XP never serves it, and `processResources` skips `assets/ui/**`. The card reu
   It loads the built card from `/dev-card/<view>` and answers its `tools/call` from
   `dev/mock-mcp.ts`, which shares the mock API's state. Rebuild with `pnpm build:dev:ui` after a
   change to the card.
+
+The `mcpb` target compiles `dev/mcp-stdio.ts` into one CommonJS file with no dependencies,
+`build/mcpb/server/index.js`, next to the manifest from `dev/mcpb/manifest.json` (stamped with
+the version from `gradle.properties`) and the icon; `pack:mcpb` then runs `mcpb validate` and
+`mcpb pack` into `build/resources/main/assets/grieg.mcpb`, which the MCP tab offers for
+download. The bundle carries no key and no URL: Desktop asks for both on install and keeps the
+key in its encrypted settings. Keep the forwarder free of Node-24-only APIs, since Desktop's
+bundled Node version is not documented. The manifest's `tools` list is checked against the
+server's tools in `src/test/apis/mcp.test.ts`, so a new tool goes into both.
 
 ## Architecture
 
