@@ -18,7 +18,7 @@ const CONFIG: McpConfig = {
 const AUTH = { Authorization: 'Bearer secret' };
 const KEY = 'grieg_personal';
 const KEY_AUTH = { Authorization: `Bearer ${KEY}` };
-const OWNER: KeyResolution = { login: 'alice', idProvider: 'ldap' };
+const OWNER: KeyResolution = { login: 'alice', idProvider: 'ldap', admin: false };
 
 type Self = [scheme: string, host: string, port: number];
 
@@ -31,10 +31,12 @@ function check(
     cookieNames = [],
     self = LOCAL,
     resolveKey = () => ({ reason: 'unknown MCP key' }),
+    isAdmin = () => false,
   }: {
     cookieNames?: string[];
     self?: Self;
     resolveKey?: (key: string) => KeyResolution;
+    isAdmin?: (userKey: string) => boolean;
   } = {},
 ): Access {
   const lower = Object.fromEntries(Object.entries(headers).map(([k, v]) => [k.toLowerCase(), v]));
@@ -44,6 +46,7 @@ function check(
       cookieNames,
       origin: originOf(...self),
       resolveKey,
+      isAdmin,
     },
     { ...CONFIG, ...config },
   );
@@ -82,7 +85,7 @@ describe('checkAccess: cookies', () => {
 describe('checkAccess: Origin and Host', () => {
   it('should admit a request without Origin whatever its host', () => {
     expect(check(AUTH, {}, { self: ['http', 'evil.example.com', 80] })).toEqual({
-      config: { ...CONFIG, credential: 'token' },
+      config: { ...CONFIG, credential: 'token', admin: false },
     });
   });
 
@@ -205,7 +208,7 @@ describe('checkAccess: per-user keys', () => {
 
     expect(resolveKey).toHaveBeenCalledWith(KEY);
     expect(access).toEqual({
-      config: { ...CONFIG, user: 'alice', idProvider: 'ldap', credential: 'key' },
+      config: { ...CONFIG, user: 'alice', idProvider: 'ldap', credential: 'key', admin: false },
     });
   });
 
@@ -253,6 +256,15 @@ describe('checkAccess: per-user keys', () => {
     expect(denied).toEqual({ status: 401, reason: 'unknown MCP key' });
   });
 
+  it("should carry the key owner's admin role without asking isAdmin", () => {
+    const isAdmin = vi.fn(() => false);
+
+    const access = check(KEY_AUTH, {}, { resolveKey: () => ({ ...OWNER, admin: true }), isAdmin });
+
+    expect(access).toHaveProperty('config.admin', true);
+    expect(isAdmin).not.toHaveBeenCalled();
+  });
+
   it('should check cookies and Origin before resolving a key', () => {
     const resolveKey = vi.fn(() => OWNER);
 
@@ -267,7 +279,36 @@ describe('checkAccess: per-user keys', () => {
 
 describe('checkAccess: shared token', () => {
   it('should run as mcp.user when the bearer matches mcp.token', () => {
-    expect(check(AUTH)).toEqual({ config: { ...CONFIG, credential: 'token' } });
+    expect(check(AUTH)).toEqual({ config: { ...CONFIG, credential: 'token', admin: false } });
+  });
+
+  it('should ask isAdmin about mcp.user in its ID provider', () => {
+    const isAdmin = vi.fn(() => true);
+
+    expect(check(AUTH, { idProvider: 'ldap' }, { isAdmin })).toHaveProperty('config.admin', true);
+    expect(isAdmin).toHaveBeenCalledWith('user:ldap:editor');
+  });
+
+  it('should admit as a non-admin, and log, when the role lookup throws', () => {
+    const warning = vi.fn();
+    vi.stubGlobal('log', { warning });
+    const isAdmin = (): boolean => {
+      throw new Error('system-repo unavailable');
+    };
+
+    expect(check(AUTH, {}, { isAdmin })).toEqual({
+      config: { ...CONFIG, credential: 'token', admin: false },
+    });
+    expect(warning).toHaveBeenCalledWith(
+      'MCP role lookup for `mcp.user` failed: Error: system-repo unavailable',
+    );
+  });
+
+  it('should not look up roles for a wrong token', () => {
+    const isAdmin = vi.fn(() => true);
+
+    expect(rejection(check({ Authorization: 'Bearer nope' }, {}, { isAdmin })).status).toBe(401);
+    expect(isAdmin).not.toHaveBeenCalled();
   });
 
   it.each([

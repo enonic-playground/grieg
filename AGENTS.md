@@ -88,9 +88,10 @@ phrases), which the React bundle reads at boot.
   `/workflows/<name>/runs/<id>`, through `lib/runs.ts`; `lib/steps.ts` validates steps and fills
   `{{steps.<id>.output}}` placeholders, and stays free of `/lib/xp/*` imports. The task checks
   `role:system.admin` on its inherited context as its first statement, before anything reaches
-  `runInRepo`, and stores only messages from `renderPrompt()` and `generate()`. The API's
-  `POST ?action=run` creates the run node, submits the task with `{ workflowId, runId }` and
-  stamps the run with the task id; a task without `runId` (a schedule) creates its own. Task
+  `runInRepo`, and stores only messages from `renderPrompt()` and `generate()`. `startRun()`
+  (`lib/run-start.ts`, behind the API's `POST ?action=run` and `workflow_run`) creates the run
+  node, submits the task with `{ workflowId, runId }` outside `runInRepo`, so the task inherits
+  the caller and not the store's admin, and stamps the run with the task id; a task without `runId` (a schedule) creates its own. Task
   config is not validated against the form, so the task adopts a `runId` only when it names a
   `running` run of that workflow that no other task has claimed. A `running` run counts as going
   only while lib-task reports its task live (or, unstamped, for its first minute); the skip guard
@@ -100,8 +101,9 @@ phrases), which the React bundle reads at boot.
 - **Scheduling** uses core `lib-scheduler`, not the community `lib-cron`, because scheduler jobs
   are persisted and fire once per cluster. A workflow has at most one cron job, named
   `grieg-workflow-<workflowId>` (`scheduleName()` in `lib/schedule.ts`), running `RUN_TASK` with
-  config `{ workflowId }`. `apis/crons` creates, edits and deletes only jobs with that
-  descriptor, and sets the job `user` to the caller on every save; another app's job only
+  config `{ workflowId }`. `lib/crons.ts` holds the scheduler logic that `apis/crons` and the
+  MCP cron tools share, returning `{ code, message }` failures each maps to its own errors. It
+  creates, edits and deletes only jobs with that descriptor, and sets the job `user` to the caller on every save; another app's job only
   toggles `enabled` and keeps its user, so a save never makes it run as the saving admin. The
   scheduler re-authenticates the job user at fire time, so a disabled or demoted owner turns
   every scheduled run into a `failed` one. The job's `enabled` is the only switch: the task
@@ -129,6 +131,12 @@ phrases), which the React bundle reads at boot.
     user, the key's owner or `mcp.user` (`ToolsConfig.user`, `idProvider`, `credential`),
     through `lib/run-as.ts`, without a `principals` override, and refuse to run when XP
     silently resolves that user to anonymous.
+  - The workflow tools (`lib/workflow-tools.ts`) share `lib/crons.ts` and `lib/run-start.ts`
+    with `apis/crons` and `apis/workflows`, so REST and MCP follow one set of rules. They are
+    admin-only. `ToolsConfig.admin` comes from
+    the key resolution, or for the shared token from the injected `isAdmin` resolver;
+    `apis/mcp` moves the toolset into `disabledTools` for anyone else, and every handler checks
+    `hasRole('system.admin')` again as the acting user before touching the store or scheduler.
   - lib-repo `list()` is admin-only, so `node_repos` lists as admin and keeps only branches
     where a `count: 0` query as the user finds a node. Content repositories keep project roles
     off the root node, and `exists()` runs as admin, so neither proves access.

@@ -33,11 +33,11 @@ describe('getMcpConfig', () => {
     });
   });
 
-  it('should enable both toolsets, writes and every repository by default', () => {
+  it('should enable every toolset, writes and every repository by default', () => {
     withConfig({});
 
     expect(getMcpConfig()).toMatchObject({
-      toolsets: ['content', 'nodes'],
+      toolsets: ['content', 'nodes', 'workflows'],
       readOnly: false,
       nodeRepos: [],
     });

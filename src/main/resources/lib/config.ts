@@ -3,7 +3,7 @@
 const DEFAULT_PROJECT = 'default';
 const DEFAULT_BRANCH = 'draft';
 const DEFAULT_ID_PROVIDER = 'system';
-const DEFAULT_TOOLSETS = ['content', 'nodes'];
+const DEFAULT_TOOLSETS = ['content', 'nodes', 'workflows'];
 
 export type McpConfig = {
   // Deprecated shared-token mode, on only while `token` and `user` are both set.
@@ -21,7 +21,8 @@ export type McpConfig = {
 };
 
 // `user` and `idProvider` name the acting user: a key's owner, or `mcp.user` for the shared token.
-export type ToolsConfig = McpConfig & { user: string; credential: 'key' | 'token' };
+// `admin` is whether that user held `role:system.admin` when the request was admitted.
+export type ToolsConfig = McpConfig & { user: string; credential: 'key' | 'token'; admin: boolean };
 
 function value(key: string): string | undefined {
   const raw = app.config[key]?.trim();

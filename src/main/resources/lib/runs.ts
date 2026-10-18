@@ -188,6 +188,17 @@ export function listRuns(workflow: Workflow): Run[] {
   });
 }
 
+export function lastRun(workflow: Workflow): Run | undefined {
+  return runInRepo(() => {
+    const result = getConnection().query({
+      count: 1,
+      query: { term: { field: '_parentPath', value: runsPath(workflow) } },
+      sort: 'startedAt DESC',
+    });
+    return getRuns(result.hits.map((hit) => hit.id))[0];
+  });
+}
+
 // Call inside `runInRepo`. A running run is never deleted, so a long run cannot lose its record.
 function prune(path: string): void {
   const connection = getConnection();

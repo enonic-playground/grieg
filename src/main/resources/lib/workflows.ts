@@ -97,9 +97,10 @@ export function list(): Workflow[] {
 }
 
 // Run nodes live below `/workflows` too, so an id is a workflow only when it names a direct child.
+// A read node carries `_path` but no `_parentPath`.
 function getWorkflowNode(id: string): Node<WorkflowData> | undefined {
   const node = getConnection().get<WorkflowData>(id);
-  return node?._parentPath === WORKFLOWS_PATH ? node : undefined;
+  return node != null && node._path === `${WORKFLOWS_PATH}/${node._name}` ? node : undefined;
 }
 
 export function getById(id: string): Workflow | undefined {

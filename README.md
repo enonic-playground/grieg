@@ -53,12 +53,14 @@ mcp.allowedOrigins =
 # `localhost`, `127.0.0.1` and `[::1]` are always trusted.
 mcp.allowedHosts =
 
-# Toolsets to serve, comma-separated: `content` (content_*) and `nodes` (node_*). Unknown
-# names are ignored with a log warning; a blank value serves no tools at all.
-mcp.toolsets = content,nodes
+# Toolsets to serve, comma-separated: `content` (content_*), `nodes` (node_*) and `workflows`
+# (workflow_*, run_*, cron_*; served only to administrators). Unknown names are ignored with a
+# log warning; a blank value serves no tools at all. An install that sets this key must list
+# `workflows` to get the workflow tools.
+mcp.toolsets = content,nodes,workflows
 
-# `true` removes content_update, content_create, node_create and node_update from `tools/list`, and refuses
-# them if called anyway.
+# `true` removes content_update, content_create, node_create, node_update, workflow_run,
+# cron_set and cron_delete from `tools/list`, and refuses them if called anyway.
 mcp.readOnly = false
 
 # Repositories the node tools may use, comma-separated exact ids. Empty means every
@@ -126,6 +128,13 @@ The endpoint is `http://<host>:8080/api/com.enonic.app.grieg:mcp`, a stateless M
 | `node_get`         | One node by id or path, with `data` (default), `permissions`, `indexConfig` or `fields`        |
 | `node_create`      | Create a node under a parent; permissions are inherited and cannot be set                      |
 | `node_update`      | `set` and `unset` dot paths on a node, with `expectedVersionKey` conflict checking             |
+| `workflow_list`    | Every workflow with its step count, schedule and last run, and a link to it in the admin tool  |
+| `workflow_run`     | Start a run as the acting user; returns its `runId` at once                                    |
+| `run_list`         | A workflow's runs, newest first, without outputs                                               |
+| `run_get`          | One run with each step's output or error and duration; outputs cut to 4,000 characters         |
+| `cron_list`        | Every scheduled job on the server, workflow schedules first                                    |
+| `cron_set`         | Create or change a workflow schedule, or toggle another application's job                      |
+| `cron_delete`      | Delete a workflow schedule                                                                     |
 
 `node_update` keeps a property's type: a `set` on a date, time, geo point or reference takes the string `node_get` shows for it and stores it as that type again. A `set` over a link, a binary reference or a property holding several typed values is refused, since a string would replace its type. Xml properties read as plain strings, so a `set` on one stores a String.
 
@@ -133,7 +142,9 @@ The node tools run as the acting user too, so XP's node permissions decide what 
 
 `content_create` always writes to the `draft` branch, whatever `mcp.branch` says, with `requireValid` on and the workflow state set to in-progress, so nothing an agent creates goes live until someone publishes it. XP reports only the first validation error, and none for a missing required field, so the tool first checks the data against the content type's occurrence rules and names the offending paths, the first ten per refusal plus a count of the rest. `content_type_get` expands nested item sets and option sets four levels deep; a set on the fifth level is listed, marked `capped`, without its fields.
 
-Each successful write by `content_create`, `content_update`, `node_create` or `node_update` also leaves one entry in XP's audit log, besides the entries XP writes for the change itself. The entry has type `grieg.mcp.<tool>`, the acting user as `user`, the written item as `<repository>:<branch>:<id>` in `objects` (the form XP uses for its own content entries, so a search by object finds both), and `tool` plus the written `fields` in `data`. A refused, failed or no-op call writes none, and a failed audit write is logged without failing the call.
+The workflow tools are for administrators: they are listed only when the acting user holds `role:system.admin`, and each call checks the role again, so a user who lost it since `tools/list` is refused. To anyone else they answer with that reason rather than "Unknown tool". They follow the [Workflows](#workflows) and [Schedules](#schedules) rules of the admin tool and share its code. Runs are asynchronous: `workflow_run` returns a `runId` with status `running` (or `skipped` while another run is going), and `run_get` reads the result once it is `done` or `failed`. `cron_set` creates a workflow's schedule in `UTC` and enabled unless told otherwise, and every save makes the acting user the one the schedule runs as. For another application's job it takes the job `name` and `enabled` only, and keeps that job's user; a workflow schedule is always addressed by `workflowId`. Workflows themselves are created and edited in the admin tool, not over MCP. Results about a workflow carry an `adminUrl` to its page in the admin tool.
+
+Each successful write by `content_create`, `content_update`, `node_create`, `node_update`, `workflow_run`, `cron_set` or `cron_delete` also leaves one entry in XP's audit log, besides the entries XP writes for the change itself. The entry has type `grieg.mcp.<tool>`, the acting user as `user`, the written item in `objects`, and `tool` plus the written `fields` in `data` (for `cron_set`, the job fields the call changed). A content or node item, and the run node `workflow_run` creates, is written as `<repository>:<branch>:<id>` (the form XP uses for its own content entries, so a search by object finds both); a schedule is written as `scheduler:<job name>`. A refused, failed or no-op call writes none, and a failed audit write is logged without failing the call.
 
 Summaries carry an `editUrl` into Content Studio. On the `draft` branch, edits need publishing in Content Studio to go live, and each edit resets the item's workflow state to in-progress.
 

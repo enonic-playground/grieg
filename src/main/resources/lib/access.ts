@@ -23,9 +23,13 @@ export type AccessRequest = {
   origin: string;
   // A miss carries the reason the endpoint logs.
   resolveKey: (key: string) => KeyResolution;
+  // Asked only for the shared token's `mcp.user`: a key's resolution already carries `admin`.
+  isAdmin: (userKey: string) => boolean;
 };
 
-export type KeyResolution = { login: string; idProvider: string } | { reason: string };
+export type KeyResolution =
+  | { login: string; idProvider: string; admin: boolean }
+  | { reason: string };
 
 export type Rejection =
   | { status: 401; reason: string }
@@ -144,8 +148,8 @@ export function checkAccess(request: AccessRequest, config: McpConfig): Access {
       };
     }
     if ('reason' in resolved) return unauthorized(resolved.reason);
-    const { login, idProvider } = resolved;
-    return { config: { ...config, user: login, idProvider, credential: 'key' } };
+    const { login, idProvider, admin } = resolved;
+    return { config: { ...config, user: login, idProvider, credential: 'key', admin } };
   }
 
   const { token, user } = config;
@@ -157,5 +161,12 @@ export function checkAccess(request: AccessRequest, config: McpConfig): Access {
   if (!safeEqual(bearer, token)) {
     return unauthorized('invalid bearer token');
   }
-  return { config: { ...config, user, credential: 'token' } };
+  // Only the workflow tools need the answer, so a failed lookup withholds them, not every tool.
+  let admin = false;
+  try {
+    admin = request.isAdmin(`user:${config.idProvider}:${user}`);
+  } catch (e) {
+    log.warning(`MCP role lookup for \`mcp.user\` failed: ${redactKeys(String(e))}`);
+  }
+  return { config: { ...config, user, credential: 'token', admin } };
 }
