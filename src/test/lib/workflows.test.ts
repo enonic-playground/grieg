@@ -158,8 +158,9 @@ describe('workflow store ACL', () => {
 });
 
 describe('workflow lookup', () => {
-  const RUN_NODE = { _id: 'run-1', _name: 'run-1', _parentPath: '/workflows/nightly/runs' };
-  const WORKFLOW_NODE = { _id: 'w1', _name: 'nightly', _parentPath: WORKFLOWS_PATH };
+  // As lib-node returns them: `_path`, never `_parentPath`.
+  const RUN_NODE = { _id: 'run-1', _name: 'run-1', _path: '/workflows/nightly/runs/run-1' };
+  const WORKFLOW_NODE = { _id: 'w1', _name: 'nightly', _path: '/workflows/nightly' };
 
   it('should not treat a run node as a workflow', () => {
     connection.get.mockReturnValue(RUN_NODE);

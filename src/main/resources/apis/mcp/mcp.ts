@@ -4,11 +4,12 @@ import type { Request, Response } from '@enonic-types/core';
 
 import { checkAccess, originOf, type Rejection } from '../../lib/access';
 import { getMcpConfig, type ToolsConfig } from '../../lib/config';
-import { authenticate } from '../../lib/keys';
+import { authenticate, isAdmin } from '../../lib/keys';
 import { handle, selectTools, type HttpReply, type Server, type Tool } from '../../lib/mcp';
 import { createNodeTools } from '../../lib/node-tools';
 import { userKey } from '../../lib/run-as';
 import { createContentTools, serverInstructions } from '../../lib/tools';
+import { ADMIN_ROLE, createWorkflowTools, WORKFLOWS_TOOLSET } from '../../lib/workflow-tools';
 
 const CONTENT_STUDIO = 'com.enonic.app.contentstudio';
 
@@ -36,10 +37,13 @@ function deny(req: Request, rejection: Rejection): Response {
   };
 }
 
+function adminToolUrl(origin: string, application: string): string {
+  const toolUrl = getToolUrl(application, 'main');
+  return toolUrl.startsWith('/') ? `${origin}${toolUrl}` : toolUrl;
+}
+
 function contentStudioEditBase(origin: string, project: string): string {
-  const toolUrl = getToolUrl(CONTENT_STUDIO, 'main');
-  const absolute = toolUrl.startsWith('/') ? `${origin}${toolUrl}` : toolUrl;
-  return `${absolute}/${project}/edit`;
+  return `${adminToolUrl(origin, CONTENT_STUDIO)}/${project}/edit`;
 }
 
 let warnedToolsets = '';
@@ -73,6 +77,7 @@ export function post(req: Request): Response {
       cookieNames: Object.keys(req.cookies ?? {}),
       origin,
       resolveKey: authenticate,
+      isAdmin,
     },
     getMcpConfig(),
   );
@@ -83,16 +88,26 @@ export function post(req: Request): Response {
   const toolsets: Record<string, Tool[]> = {
     content: createContentTools(config, contentStudioEditBase(origin, config.project)),
     nodes: createNodeTools(config),
+    [WORKFLOWS_TOOLSET]: createWorkflowTools(config, adminToolUrl(origin, app.name)),
   };
   warnUnknownToolsets(config.toolsets.filter((name) => !Object.hasOwn(toolsets, name)));
-  const { tools, disabledTools } = selectTools(toolsets, config.toolsets, config.readOnly);
+  const selection = selectTools(toolsets, config.toolsets, config.readOnly);
+  const { disabledTools } = selection;
+  const adminOnly = new Set(
+    config.admin ? [] : toolsets[WORKFLOWS_TOOLSET].map((tool) => tool.name),
+  );
+  for (const { name } of selection.tools.filter((tool) => adminOnly.has(tool.name))) {
+    disabledTools[name] = `${name} requires ${ADMIN_ROLE}, which ${userKey(config)} does not hold.`;
+  }
+  const tools = selection.tools.filter(({ name }) => !adminOnly.has(name));
 
   const server: Server = {
     info: {
       name: app.name,
       title: 'Grieg',
       version: app.version,
-      description: 'Enonic XP tools: search, read and update content and repository nodes',
+      description:
+        'Enonic XP tools: search, read and update content and repository nodes, and run and schedule workflows',
     },
     instructions: serverInstructions(config),
     tools,

@@ -6,6 +6,8 @@ import type { Node } from '/lib/xp/node';
 import { randomToken, sha256Hex } from './key-crypto';
 import { ensureAdminFolder, getConnection, runInRepo } from './repo';
 
+const ADMIN_ROLE = 'role:system.admin';
+
 // Membership in this role is what entitles a user to hold an MCP key.
 export const MCP_ROLE_NAME = 'com.enonic.app.grieg.mcp';
 export const MCP_ROLE = `role:${MCP_ROLE_NAME}`;
@@ -202,16 +204,25 @@ export function touch(key: McpKey, now = new Date()): void {
   }
 }
 
+function rolesOf(user: UserKey): Set<string> {
+  return new Set(getMemberships(user, true).map((principal) => principal.key));
+}
+
+export function isAdmin(user: string): boolean {
+  return isUserKey(user) && runInRepo(() => rolesOf(user).has(ADMIN_ROLE));
+}
+
 // Checked on every request, so removing the owner from the role or disabling them stops the
 // key at once rather than at expiry.
-function ownerRefusal(owner: string): string | undefined {
-  if (!isUserKey(owner)) return 'is not a user';
+function checkOwner(owner: string): { refusal: string } | { admin: boolean } {
+  if (!isUserKey(owner)) return { refusal: 'is not a user' };
   return runInRepo(() => {
     const user = getPrincipal(owner);
-    if (user == null) return 'no longer exists';
-    if (user.disabled === true) return 'is disabled';
-    const entitled = getMemberships(owner, true).some((principal) => principal.key === MCP_ROLE);
-    return entitled ? undefined : `does not hold ${MCP_ROLE}`;
+    if (user == null) return { refusal: 'no longer exists' };
+    if (user.disabled === true) return { refusal: 'is disabled' };
+    const roles = rolesOf(owner);
+    if (!roles.has(MCP_ROLE)) return { refusal: `does not hold ${MCP_ROLE}` };
+    return { admin: roles.has(ADMIN_ROLE) };
   });
 }
 
@@ -221,10 +232,10 @@ export function authenticate(bearer: string, now = new Date()): KeyResolution {
   if (key == null) return { reason: 'unknown MCP key' };
   if (isExpired(key, now)) return { reason: `MCP key of ${key.owner} expired at ${key.expires}` };
 
-  const refusal = ownerRefusal(key.owner);
-  if (refusal != null) return { reason: `owner ${key.owner} of an MCP key ${refusal}` };
+  const owner = checkOwner(key.owner);
+  if ('refusal' in owner) return { reason: `owner ${key.owner} of an MCP key ${owner.refusal}` };
 
   touch(key, now);
   const [, idProvider, login] = key.owner.split(':');
-  return { login, idProvider };
+  return { login, idProvider, admin: owner.admin };
 }

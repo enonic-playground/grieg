@@ -28,6 +28,7 @@ import {
 import { nodeInstructions } from './node-tools';
 import { asConfiguredUser as runAs, userKey } from './run-as';
 import { MAX_FIELDS, nextCursor, projectFields, SUBTREE_BUDGET } from './shape';
+import { workflowInstructions, WORKFLOWS_TOOLSET } from './workflow-tools';
 
 const CONTENT_REPO_PREFIX = 'com.enonic.cms.';
 const DRAFT = 'draft';
@@ -194,6 +195,9 @@ export function serverInstructions(config: ToolsConfig): string {
   return [
     ...(config.toolsets.includes('content') ? [contentInstructions(config)] : []),
     ...(config.toolsets.includes('nodes') ? [nodeInstructions(config)] : []),
+    ...(config.toolsets.includes(WORKFLOWS_TOOLSET) && config.admin
+      ? [workflowInstructions(config)]
+      : []),
     UNTRUSTED_DATA,
   ].join('\n');
 }

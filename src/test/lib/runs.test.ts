@@ -11,6 +11,7 @@ import {
   SKIPPED,
   createRun,
   finishRun,
+  lastRun,
   listRuns,
   sweepInterrupted,
 } from '../../main/resources/lib/runs';
@@ -299,6 +300,19 @@ describe('listRuns', () => {
     stored = [run('r1', 'done', 1)];
 
     expect(listRuns(WORKFLOW).map((r) => r.id)).toEqual(['r1']);
+  });
+});
+
+describe('lastRun', () => {
+  it("should read only the workflow's newest run", () => {
+    stored = [run('r1', 'done', 1), run('r2', 'failed', 2)];
+
+    expect(lastRun(WORKFLOW)?.id).toBe('r2');
+    expect(connection.query).toHaveBeenCalledWith(expect.objectContaining({ count: 1 }));
+  });
+
+  it('should answer undefined for a workflow that never ran', () => {
+    expect(lastRun(WORKFLOW)).toBeUndefined();
   });
 });
 

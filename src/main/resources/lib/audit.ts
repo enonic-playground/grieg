@@ -4,7 +4,13 @@ import type { ToolsConfig } from './config';
 
 import { userKey } from './run-as';
 
-export type AuditTarget = { repository: string; branch: string; id: string };
+export type AuditTarget = { repository: string; branch: string; id: string } | { schedule: string };
+
+// The URI form XP gives its own content entries, so one search by object finds both.
+function objectOf(target: AuditTarget): string {
+  if ('schedule' in target) return `scheduler:${target.schedule}`;
+  return `${target.repository}:${target.branch}:${target.id}`;
+}
 
 // Called only after a write landed, so a failure here is logged and never fails the call.
 export function auditWrite(
@@ -17,8 +23,7 @@ export function auditWrite(
     auditLog({
       type: `grieg.mcp.${tool}`,
       user: userKey(config),
-      // The URI form XP gives its own content entries, so one search by object finds both.
-      objects: [`${target.repository}:${target.branch}:${target.id}`],
+      objects: [objectOf(target)],
       data: { tool, fields },
     });
   } catch (e) {

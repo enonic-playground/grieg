@@ -1,11 +1,11 @@
 import { getUser } from '/lib/xp/auth';
-import { deleteJob, get as getJob } from '/lib/xp/scheduler';
-import { submitTask } from '/lib/xp/task';
 
 import type { Request, Response } from '@enonic-types/core';
 
 import { errorResponse, getParam, jsonResponse, parseBody, requireAdmin } from '../../lib/api';
-import { RUN_TASK, claimRun, createRun, finishRun, listRuns } from '../../lib/runs';
+import { removeSchedule } from '../../lib/crons';
+import { startRun } from '../../lib/run-start';
+import { listRuns } from '../../lib/runs';
 import { scheduleName } from '../../lib/schedule';
 import { validateSteps } from '../../lib/steps';
 import {
@@ -28,30 +28,12 @@ function stepsError(steps: unknown): Response | undefined {
   });
 }
 
-function startRun(workflow: Workflow): Response {
-  const user = getUser()?.key ?? 'user:system:anonymous';
-  const run = createRun({ workflow, trigger: 'manual', user });
-  if (run.status !== 'running') {
-    return jsonResponse({ runId: run.id, status: run.status }, 200);
-  }
-
-  let taskId: string;
-  try {
-    taskId = submitTask({
-      descriptor: RUN_TASK,
-      config: { workflowId: workflow.id, runId: run.id },
-    });
-  } catch {
-    finishRun(workflow, run.id, { status: 'failed', error: 'The run task could not be started' });
-    log.error(`Workflow run ${run.id} could not be submitted`);
-    return errorResponse(500, 'The run task could not be started', 'TASK_FAILED');
-  }
-  try {
-    claimRun(run.id, taskId);
-  } catch {
-    log.warning(`Workflow run ${run.id} could not be stamped with its task`);
-  }
-  return jsonResponse({ runId: run.id, taskId, status: run.status }, 202);
+function startWorkflow(workflow: Workflow): Response {
+  const started = startRun(workflow, getUser()?.key ?? 'user:system:anonymous');
+  if (!started.ok) return errorResponse(500, started.message, 'TASK_FAILED');
+  const { runId, taskId, status } = started;
+  if (status !== 'running') return jsonResponse({ runId, status }, 200);
+  return jsonResponse({ runId, taskId, status }, 202);
 }
 
 export function get(req: Request): Response {
@@ -77,7 +59,7 @@ export function post(req: Request): Response {
     if (id == null) return errorResponse(400, 'Missing `id` parameter', 'BAD_REQUEST');
     const workflow = getById(id);
     if (workflow == null) return errorResponse(404, `No workflow with id ${id}`, 'NOT_FOUND');
-    return startRun(workflow);
+    return startWorkflow(workflow);
   }
   if (action != null) return errorResponse(400, `Unknown action ${action}`, 'BAD_REQUEST');
 
@@ -112,7 +94,7 @@ export function put(req: Request): Response {
 function deleteSchedule(workflowId: string): void {
   const name = scheduleName(workflowId);
   try {
-    if (getJob({ name })?.descriptor === RUN_TASK) deleteJob({ name });
+    removeSchedule(name);
   } catch {
     log.warning(`Scheduled job ${name} of a deleted workflow could not be deleted`);
   }

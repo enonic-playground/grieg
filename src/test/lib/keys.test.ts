@@ -10,6 +10,7 @@ import {
   findByOwner,
   generate,
   initKeyStore,
+  isAdmin,
   isExpired,
   list,
   resolve,
@@ -239,9 +240,16 @@ describe('authenticate', () => {
   });
 
   it("should resolve the owner's login and ID provider and record the use", () => {
-    expect(authenticate(KEY, NOW)).toEqual({ login: 'alice', idProvider: 'system' });
+    expect(authenticate(KEY, NOW)).toEqual({ login: 'alice', idProvider: 'system', admin: false });
     expect(getMemberships).toHaveBeenCalledWith(OWNER, true);
     expect(connection.update).toHaveBeenCalledTimes(1);
+  });
+
+  it('should report an admin owner without a second membership lookup', () => {
+    entitle('role:com.enonic.app.grieg.mcp', 'role:system.admin');
+
+    expect(authenticate(KEY, NOW)).toEqual({ login: 'alice', idProvider: 'system', admin: true });
+    expect(getMemberships).toHaveBeenCalledTimes(1);
   });
 
   it('should look the owner up as admin', () => {
@@ -302,6 +310,43 @@ describe('authenticate', () => {
     expect(JSON.stringify(result)).not.toContain('a'.repeat(8));
     expect(JSON.stringify(result)).not.toContain(sha256(KEY));
     expect(connection.update).not.toHaveBeenCalled();
+  });
+});
+
+describe('isAdmin', () => {
+  it('should answer from transitive memberships, looked up as admin', () => {
+    const seen: boolean[] = [];
+    let asAdmin = false;
+    run.mockImplementation((context, callback) => {
+      asAdmin =
+        (context as { principals?: string[] }).principals?.includes('role:system.admin') ?? false;
+      try {
+        return callback();
+      } finally {
+        asAdmin = false;
+      }
+    });
+    getMemberships.mockImplementation(() => {
+      seen.push(asAdmin);
+      return [{ key: 'role:system.admin' }] as never;
+    });
+
+    expect(isAdmin('user:system:editor')).toBe(true);
+    expect(getMemberships).toHaveBeenCalledWith('user:system:editor', true);
+    expect(seen).toEqual([true]);
+  });
+
+  it('should answer false for a user without the role', () => {
+    getMemberships.mockReturnValue([{ key: 'role:system.everyone' }] as never);
+
+    expect(isAdmin('user:system:editor')).toBe(false);
+  });
+
+  it('should answer false for a key that is not a user, without a lookup', () => {
+    getMemberships.mockReturnValue([{ key: 'role:system.admin' }] as never);
+
+    expect(isAdmin('role:system.admin')).toBe(false);
+    expect(getMemberships).not.toHaveBeenCalled();
   });
 });
 
