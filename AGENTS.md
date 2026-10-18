@@ -176,6 +176,8 @@ Conventional Commits. Types: `feat`, `fix`, `docs`, `chore`, `refactor`, `test`,
 - **Issue labels**: exactly one main label (`bug`, `feature`, `improvement`, `epic`) plus up to
   two supportive ones: `UI/UX` (mainly frontend visuals or interaction), `DX` (build or
   tooling), `AI` (code assistants), `wontfix` (closed without changes).
+- **Issue type**: every issue gets a GitHub issue type, `Feature`, `Bug` or `Task` (epics take
+  `Feature`): `gh issue create --type <Type>`, or `gh issue edit` / the API on an existing one.
 - **PR title**: `<type>: <description> #<number>`, matching the commit.
 - **PR body**: a summary of the changes, then one `Closes #<number>` per line, with one blank
   line between sections. No emojis, generated-by footer, `---` rule, session link or `<sub>`
