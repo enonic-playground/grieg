@@ -1,17 +1,29 @@
 import { getToolUrl } from '/lib/xp/admin';
+import { getResource, readText } from '/lib/xp/io';
 
 import type { Request, Response } from '@enonic-types/core';
 
 import { checkAccess, originOf, type Rejection } from '../../lib/access';
+import { cardResources, withCards } from '../../lib/cards';
 import { getMcpConfig, type ToolsConfig } from '../../lib/config';
 import { authenticate, isAdmin } from '../../lib/keys';
-import { handle, selectTools, type HttpReply, type Server, type Tool } from '../../lib/mcp';
+import {
+  handle,
+  selectTools,
+  type HttpReply,
+  type Server,
+  type Tool,
+  type UiResource,
+} from '../../lib/mcp';
 import { createNodeTools } from '../../lib/node-tools';
 import { userKey } from '../../lib/run-as';
 import { createContentTools, serverInstructions } from '../../lib/tools';
 import { ADMIN_ROLE, createWorkflowTools, WORKFLOWS_TOOLSET } from '../../lib/workflow-tools';
 
 const CONTENT_STUDIO = 'com.enonic.app.contentstudio';
+
+// Built by the `ui` Vite target.
+const CARD_PATH = '/ui/card.html';
 
 function toResponse({ status, body }: HttpReply): Response {
   return body == null
@@ -69,6 +81,20 @@ function warnSharedToken(config: ToolsConfig): void {
   );
 }
 
+// Read once per application start; empty when the file is missing, which is logged once.
+let cards: UiResource[] | undefined;
+
+function loadCards(): UiResource[] {
+  if (cards == null) {
+    const resource = getResource(CARD_PATH);
+    cards = resource.exists() ? cardResources(readText(resource.getStream())) : [];
+    if (cards.length === 0) {
+      log.warning(`MCP serves no cards: ${CARD_PATH} is missing; build it with the \`ui\` target`);
+    }
+  }
+  return cards;
+}
+
 export function post(req: Request): Response {
   const origin = originOf(req.scheme, req.host, req.port);
   const access = checkAccess(
@@ -100,6 +126,7 @@ export function post(req: Request): Response {
     disabledTools[name] = `${name} requires ${ADMIN_ROLE}, which ${userKey(config)} does not hold.`;
   }
   const tools = selection.tools.filter(({ name }) => !adminOnly.has(name));
+  const resources = loadCards();
 
   const server: Server = {
     info: {
@@ -110,7 +137,8 @@ export function post(req: Request): Response {
         'Enonic XP tools: search, read and update content and repository nodes, and run and schedule workflows',
     },
     instructions: serverInstructions(config),
-    tools,
+    tools: resources.length === 0 ? tools : withCards(tools),
+    resources,
     disabledTools,
   };
 

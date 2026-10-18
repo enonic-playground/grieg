@@ -20,6 +20,7 @@ Admins and members of `role:com.enonic.app.grieg.mcp` can open the admin tool. T
 ```bash
 pnpm install
 pnpm dev            # React app on :5275 against mocked APIs, no XP needed
+pnpm build:dev:ui   # the MCP card; then open :5275/cards.html, a stand-in host for it
 pnpm check          # lint + type-check + tests
 ./gradlew build     # full app jar
 ./gradlew deploy -t -Penv=dev   # build + deploy to the running sandbox, in watch mode
@@ -147,6 +148,10 @@ The workflow tools are for administrators: they are listed only when the acting 
 Each successful write by `content_create`, `content_update`, `node_create`, `node_update`, `workflow_run`, `cron_set` or `cron_delete` also leaves one entry in XP's audit log, besides the entries XP writes for the change itself. The entry has type `grieg.mcp.<tool>`, the acting user as `user`, the written item in `objects`, and `tool` plus the written `fields` in `data` (for `cron_set`, the job fields the call changed). A content or node item, and the run node `workflow_run` creates, is written as `<repository>:<branch>:<id>` (the form XP uses for its own content entries, so a search by object finds both); a schedule is written as `scheduler:<job name>`. A refused, failed or no-op call writes none, and a failed audit write is logged without failing the call.
 
 Summaries carry an `editUrl` into Content Studio. On the `draft` branch, edits need publishing in Content Studio to go live, and each edit resets the item's workflow state to in-progress.
+
+### Cards in Claude Desktop
+
+Claude Desktop and claude.ai render the results of `workflow_list`, `run_list`, `run_get`, `cron_list`, `node_query`, `node_get` and `node_repos` as interactive cards ([MCP Apps](https://github.com/modelcontextprotocol/ext-apps)) that follow the host's light or dark theme. Claude Code, and any client without MCP Apps support, shows the same tools as text, as before. A card refreshes itself, pages a query and drills down (a workflow to its runs, a run to its steps, a query hit to its node, a node to its children) by calling the read tools through the host, as the acting user; it holds no key and makes no request of its own. It never writes: Run now, Enable, Disable and Delete schedule send Claude a request instead, so the write runs as a tool call behind the host's approval prompt and lands in the audit log. Desktop asks once before it shows a server's first card. The views are four `ui://grieg/*` resources built into the app as one self-contained HTML file; an app built without it logs `MCP serves no cards` once and serves the tools without views.
 
 ### Authentication
 

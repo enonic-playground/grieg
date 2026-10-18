@@ -1,6 +1,8 @@
 {
   "caching": [
     "sep-2549-cache-scope-valid",
+    "sep-2549-resources-list-caching-hints",
+    "sep-2549-resources-read-caching-hints",
     "sep-2549-tools-list-caching-hints",
     "sep-2549-ttl-non-negative",
     "wire-schema-valid"
@@ -86,6 +88,7 @@
     "wire-schema-valid"
   ],
   "resources-list": [
+    "resources-list",
     "wire-schema-valid"
   ],
   "resources-read-binary": [
@@ -98,6 +101,7 @@
     "wire-schema-valid"
   ],
   "sep-2164-resource-not-found": [
+    "sep-2164-data-uri",
     "sep-2164-no-empty-contents",
     "wire-schema-valid"
   ],

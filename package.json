@@ -11,10 +11,12 @@
     "build:prod": "pnpm run /^build:prod:.*$/",
     "build:prod:js": "cross-env NODE_ENV=production BUILD_TARGET=js vp build --mode production",
     "build:prod:css": "cross-env NODE_ENV=production BUILD_TARGET=css vp build --mode production",
+    "build:prod:ui": "cross-env NODE_ENV=production BUILD_TARGET=ui vp build --mode production",
     "build:prod:server": "tsc -p src/main/resources/tsconfig.json",
     "build:dev": "pnpm run /^build:dev:.*$/",
     "build:dev:js": "cross-env NODE_ENV=development BUILD_TARGET=js vp build --mode development",
     "build:dev:css": "cross-env NODE_ENV=development BUILD_TARGET=css vp build --mode development",
+    "build:dev:ui": "cross-env NODE_ENV=development BUILD_TARGET=ui vp build --mode development",
     "build:dev:server": "tsc -p src/main/resources/tsconfig.json --sourceMap",
     "dev": "vp dev",
     "check": "vp lint && pnpm run check:types && pnpm run test",
@@ -34,6 +36,7 @@
     "@enonic-types/lib-context": "8.0.3",
     "@enonic-types/lib-http-client": "4.0.0",
     "@enonic-types/lib-i18n": "8.0.3",
+    "@enonic-types/lib-io": "8.0.3",
     "@enonic-types/lib-node": "8.0.3",
     "@enonic-types/lib-portal": "8.0.3",
     "@enonic-types/lib-repo": "8.0.3",
@@ -53,10 +56,14 @@
     "tailwindcss": "~4.3.3",
     "typescript": "^7.0.2",
     "vite": "catalog:",
+    "vite-plugin-singlefile": "~2.3.3",
     "vite-plus": "catalog:",
     "vitest": "catalog:"
   },
   "dependencies": {
+    "@modelcontextprotocol/client": "~2.3.1",
+    "@modelcontextprotocol/core": "~2.3.1",
+    "@modelcontextprotocol/ext-apps": "~2.0.3",
     "@radix-ui/react-alert-dialog": "~1.1.24",
     "@radix-ui/react-separator": "~1.1.11",
     "@radix-ui/react-slot": "~1.3.0",
@@ -69,6 +76,7 @@
     "react": "~19.2.7",
     "react-dom": "~19.2.7",
     "react-i18next": "~17.0.10",
-    "tailwind-merge": "~3.6.0"
+    "tailwind-merge": "~3.6.0",
+    "zod": "~4.5.4"
   }
 }

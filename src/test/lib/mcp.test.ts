@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import type { HttpReply, Server, Tool } from '../../main/resources/lib/mcp';
+import type { HttpReply, Server, Tool, UiResource } from '../../main/resources/lib/mcp';
 
 import {
   decodeHeaderValue,
@@ -49,14 +49,30 @@ const MODERN_META = {
   'io.modelcontextprotocol/clientCapabilities': {},
 };
 
-function send(body: unknown, headers: Record<string, string> = {}): HttpReply {
+const CARD: UiResource = {
+  uri: 'ui://grieg/echo',
+  name: 'grieg-echo',
+  title: 'Echo',
+  description: 'Shows an echo',
+  mimeType: 'text/html;profile=mcp-app',
+  text: '<html><body>echo</body></html>',
+  meta: { ui: { prefersBorder: true } },
+};
+
+const APPS_SERVER: Server = {
+  ...SERVER,
+  tools: [{ ...echo, ui: { resourceUri: CARD.uri } }, boom],
+  resources: [CARD],
+};
+
+function send(body: unknown, headers: Record<string, string> = {}, server = SERVER): HttpReply {
   const lower = Object.fromEntries(Object.entries(headers).map(([k, v]) => [k.toLowerCase(), v]));
   return handle(
     {
       body: typeof body === 'string' ? body : JSON.stringify(body),
       header: (name) => lower[name.toLowerCase()],
     },
-    SERVER,
+    server,
   );
 }
 
@@ -64,16 +80,24 @@ function modern(
   method: string,
   params: Record<string, unknown> = {},
   headers: Record<string, string> = {},
+  server = SERVER,
 ): HttpReply {
-  const name = typeof params.name === 'string' ? { 'Mcp-Name': params.name } : {};
+  const named = params.name ?? params.uri;
+  const name = typeof named === 'string' ? { 'Mcp-Name': named } : {};
   return send(
     { jsonrpc: '2.0', id: 1, method, params: { ...params, _meta: MODERN_META } },
     { 'MCP-Protocol-Version': LATEST_VERSION, 'Mcp-Method': method, ...name, ...headers },
+    server,
   );
 }
 
-function legacy(method: string, params?: Record<string, unknown>, headers = {}): HttpReply {
-  return send({ jsonrpc: '2.0', id: 7, method, params }, headers);
+function legacy(
+  method: string,
+  params?: Record<string, unknown>,
+  headers = {},
+  server = SERVER,
+): HttpReply {
+  return send({ jsonrpc: '2.0', id: 7, method, params }, headers, server);
 }
 
 function result(reply: HttpReply): Record<string, unknown> {
@@ -500,6 +524,126 @@ describe('handle: modern era', () => {
     const reply = modern('tools/call', { name: 'nope' });
 
     expect(error(reply).code).toBe(ErrorCode.INVALID_PARAMS);
+  });
+});
+
+describe('handle: MCP Apps resources', () => {
+  const capabilities = {
+    tools: { listChanged: false },
+    resources: {},
+    extensions: { 'io.modelcontextprotocol/ui': {} },
+  };
+  const listed = {
+    uri: CARD.uri,
+    name: CARD.name,
+    title: CARD.title,
+    description: CARD.description,
+    mimeType: CARD.mimeType,
+    _meta: CARD.meta,
+  };
+  const contents = [{ uri: CARD.uri, mimeType: CARD.mimeType, text: CARD.text, _meta: CARD.meta }];
+
+  it('should advertise resources and the UI extension on initialize and server/discover', () => {
+    expect(result(legacy('initialize', {}, {}, APPS_SERVER)).capabilities).toEqual(capabilities);
+    expect(result(modern('server/discover', {}, {}, APPS_SERVER)).capabilities).toEqual(
+      capabilities,
+    );
+  });
+
+  it('should list a tool with its view in _meta, in the nested and the flat form', () => {
+    const tools = result(legacy('tools/list', undefined, {}, APPS_SERVER)).tools as Record<
+      string,
+      unknown
+    >[];
+
+    expect(tools[0]._meta).toEqual({
+      ui: { resourceUri: CARD.uri },
+      'ui/resourceUri': CARD.uri,
+    });
+    expect(tools[1]).not.toHaveProperty('_meta');
+  });
+
+  it('should call a tool with a view exactly as one without', () => {
+    const call = { name: 'echo', arguments: { value: 'hi' } };
+
+    expect(legacy('tools/call', call, {}, APPS_SERVER)).toEqual(legacy('tools/call', call));
+  });
+
+  it('should list and read resources in the legacy era', () => {
+    expect(result(legacy('resources/list', undefined, {}, APPS_SERVER))).toEqual({
+      resources: [listed],
+    });
+    expect(result(legacy('resources/read', { uri: CARD.uri }, {}, APPS_SERVER))).toEqual({
+      contents,
+    });
+  });
+
+  it('should list and read resources in the modern era, cacheable and complete', () => {
+    const list = result(modern('resources/list', {}, {}, APPS_SERVER));
+    const read = result(modern('resources/read', { uri: CARD.uri }, {}, APPS_SERVER));
+
+    expect(list.resources).toEqual([listed]);
+    expect(read.contents).toEqual(contents);
+    expect(list).toMatchObject({ ttlMs: 300_000, resultType: 'complete' });
+    expect(read).toMatchObject({ ttlMs: 300_000, resultType: 'complete' });
+  });
+
+  it('should reject resources/read whose Mcp-Name does not match the uri', () => {
+    const missing = send(
+      {
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'resources/read',
+        params: { uri: CARD.uri, _meta: MODERN_META },
+      },
+      { 'MCP-Protocol-Version': LATEST_VERSION, 'Mcp-Method': 'resources/read' },
+      APPS_SERVER,
+    );
+    const mismatched = modern(
+      'resources/read',
+      { uri: CARD.uri },
+      { 'Mcp-Name': 'ui://grieg/other' },
+      APPS_SERVER,
+    );
+
+    expect(missing.status).toBe(400);
+    expect(error(missing)).toMatchObject({
+      code: ErrorCode.HEADER_MISMATCH,
+      message: 'Missing Mcp-Name header',
+    });
+    expect(mismatched.status).toBe(400);
+    expect(error(mismatched).message).toBe(
+      `Mcp-Name header 'ui://grieg/other' does not match params.uri '${CARD.uri}'`,
+    );
+  });
+
+  it.each([
+    ['legacy', () => legacy('resources/read', { uri: 'ui://grieg/nope' }, {}, APPS_SERVER)],
+    ['modern', () => modern('resources/read', { uri: 'ui://grieg/nope' }, {}, APPS_SERVER)],
+  ])('should answer an unknown uri with RESOURCE_NOT_FOUND in the %s era', (_era, read) => {
+    const reply = read();
+
+    expect(reply.status).toBe(200);
+    expect(error(reply)).toEqual({
+      code: ErrorCode.RESOURCE_NOT_FOUND,
+      message: 'Resource not found',
+      data: { uri: 'ui://grieg/nope' },
+    });
+  });
+
+  it('should refuse a uri that is not a string with INVALID_PARAMS', () => {
+    expect(error(legacy('resources/read', { uri: 7 }, {}, APPS_SERVER))).toEqual({
+      code: ErrorCode.INVALID_PARAMS,
+      message: '`uri` must be a string',
+    });
+  });
+
+  it('should neither advertise nor answer resources on a server without any', () => {
+    expect(result(legacy('initialize')).capabilities).toEqual({ tools: { listChanged: false } });
+    expect(error(legacy('resources/list')).code).toBe(ErrorCode.METHOD_NOT_FOUND);
+    expect(error(legacy('resources/read', { uri: CARD.uri })).code).toBe(
+      ErrorCode.METHOD_NOT_FOUND,
+    );
   });
 });
 
