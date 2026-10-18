@@ -18,7 +18,10 @@ export const ErrorCode = {
   INVALID_PARAMS: -32_602,
   HEADER_MISMATCH: -32_020,
   UNSUPPORTED_PROTOCOL_VERSION: -32_022,
+  RESOURCE_NOT_FOUND: -32_002,
 } as const;
+
+export const UI_EXTENSION = 'io.modelcontextprotocol/ui';
 
 export type Era = 'modern' | 'legacy';
 
@@ -51,13 +54,26 @@ export type Tool = {
   inputSchema: JsonObject;
   outputSchema: JsonObject;
   annotations: ToolAnnotations;
+  // The MCP Apps view a host renders the result in; hosts without Apps support ignore it.
+  ui?: { resourceUri: string };
   handler: (args: JsonObject) => ToolOutcome;
+};
+
+export type UiResource = {
+  uri: string;
+  name: string;
+  title: string;
+  description: string;
+  mimeType: string;
+  text: string;
+  meta: JsonObject;
 };
 
 export type Server = {
   info: Implementation;
   instructions: string;
   tools: Tool[];
+  resources?: UiResource[];
   // Unlisted tools mapped to why they are off, so a call gets a reason, not "Unknown tool".
   disabledTools?: Record<string, string>;
 };
@@ -85,6 +101,8 @@ type MethodOutcome = { result: JsonObject } | { error: RpcError };
 
 type MethodEntry = {
   legacyOnly?: boolean;
+  // A method the server does not advertise answers as unknown.
+  available?: (server: Server) => boolean;
   // Modern results of cacheable methods carry `ttlMs` and `cacheScope`.
   cacheable?: boolean;
   run: (context: MethodContext) => MethodOutcome;
@@ -203,14 +221,39 @@ function runTool(tool: Tool, args: JsonObject): JsonObject {
 }
 
 function describeTools(tools: Tool[]): JsonObject[] {
-  return tools.map(({ name, title, description, inputSchema, outputSchema, annotations }) => ({
+  return tools.map(({ name, title, description, inputSchema, outputSchema, annotations, ui }) => ({
     name,
     title,
     description,
     inputSchema,
     outputSchema,
     annotations: { title, ...annotations },
+    // The flat key is the deprecated form that SDK-based hosts still read.
+    ...(ui != null && { _meta: { ui, 'ui/resourceUri': ui.resourceUri } }),
   }));
+}
+
+function describeResources(resources: UiResource[]): JsonObject[] {
+  return resources.map(({ uri, name, title, description, mimeType, meta }) => ({
+    uri,
+    name,
+    title,
+    description,
+    mimeType,
+    _meta: meta,
+  }));
+}
+
+function hasResources(server: Server): boolean {
+  return (server.resources ?? []).length > 0;
+}
+
+// An SDK-based host refuses `resources/read` unless `resources` was advertised.
+function capabilitiesOf(server: Server): JsonObject {
+  return {
+    tools: { listChanged: false },
+    ...(hasResources(server) && { resources: {}, extensions: { [UI_EXTENSION]: {} } }),
+  };
 }
 
 export function selectTools(
@@ -252,7 +295,7 @@ const METHODS: Record<string, MethodEntry> = {
       return {
         result: {
           protocolVersion,
-          capabilities: { tools: { listChanged: false } },
+          capabilities: capabilitiesOf(server),
           serverInfo: server.info,
           instructions: server.instructions,
         },
@@ -270,7 +313,7 @@ const METHODS: Record<string, MethodEntry> = {
     run: ({ server }) => ({
       result: {
         supportedVersions: SUPPORTED_VERSIONS,
-        capabilities: { tools: { listChanged: false } },
+        capabilities: capabilitiesOf(server),
         instructions: server.instructions,
       },
     }),
@@ -304,11 +347,42 @@ const METHODS: Record<string, MethodEntry> = {
       return { result: runTool(tool, args) };
     },
   },
+
+  'resources/list': {
+    cacheable: true,
+    available: hasResources,
+    run: ({ server }) => ({ result: { resources: describeResources(server.resources ?? []) } }),
+  },
+
+  'resources/read': {
+    cacheable: true,
+    available: hasResources,
+    run: ({ params, server }) => {
+      if (typeof params.uri !== 'string') {
+        return { error: { code: ErrorCode.INVALID_PARAMS, message: '`uri` must be a string' } };
+      }
+      const resource = server.resources?.find(({ uri }) => uri === params.uri);
+      if (resource == null) {
+        return {
+          error: {
+            code: ErrorCode.RESOURCE_NOT_FOUND,
+            message: 'Resource not found',
+            data: { uri: params.uri },
+          },
+        };
+      }
+      const { uri, mimeType, text, meta } = resource;
+      return { result: { contents: [{ uri, mimeType, text, _meta: meta }] } };
+    },
+  },
 };
 
 //
 // * Era Wrappers
 //
+
+// The param each method mirrors in the `Mcp-Name` header.
+const NAMED_PARAMS: Record<string, string> = { 'tools/call': 'name', 'resources/read': 'uri' };
 
 function validateModern(message: Message, request: HttpRequest): HttpReply | undefined {
   const { id, method, params } = message;
@@ -353,17 +427,18 @@ function validateModern(message: Message, request: HttpRequest): HttpReply | und
     );
   }
 
-  if (method === 'tools/call') {
+  const namedParam = Object.hasOwn(NAMED_PARAMS, method) ? NAMED_PARAMS[method] : undefined;
+  if (namedParam != null) {
     const nameHeader = request.header('Mcp-Name');
     const name = nameHeader == null ? undefined : decodeHeaderValue(nameHeader);
-    if (name !== params.name) {
+    if (name !== params[namedParam]) {
       return reject(
         400,
         id,
         ErrorCode.HEADER_MISMATCH,
         nameHeader == null
           ? 'Missing Mcp-Name header'
-          : `Mcp-Name header '${nameHeader}' does not match params.name '${String(params.name)}'`,
+          : `Mcp-Name header '${nameHeader}' does not match params.${namedParam} '${String(params[namedParam])}'`,
       );
     }
   }
@@ -384,7 +459,11 @@ function dispatch(era: Era, message: Message, server: Server): HttpReply {
   const { id, method, params } = message;
   const entry = Object.hasOwn(METHODS, method) ? METHODS[method] : undefined;
 
-  if (entry == null || (entry.legacyOnly && era === 'modern')) {
+  if (
+    entry == null ||
+    (entry.legacyOnly && era === 'modern') ||
+    entry.available?.(server) === false
+  ) {
     // Modern clients read a 404 with -32601 as "method not here"; legacy ones expect 200.
     return reject(
       era === 'modern' ? 404 : 200,

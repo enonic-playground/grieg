@@ -3,11 +3,13 @@ import { TanStackRouterVite } from '@tanstack/router-plugin/vite';
 import react from '@vitejs/plugin-react';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { viteSingleFile } from 'vite-plugin-singlefile';
 import { defineConfig, type ConfigEnv, type Plugin, type UserConfig } from 'vite-plus';
 
 import { mockApi } from './dev/mock-api';
+import { mockMcp } from './dev/mock-mcp';
 
-const allowedTargets = ['js', 'css'] as const;
+const allowedTargets = ['js', 'css', 'ui'] as const;
 type BuildTarget = (typeof allowedTargets)[number];
 
 const isBuildTarget = (target: string | undefined): target is BuildTarget =>
@@ -22,6 +24,9 @@ const isDevelopment = NODE_ENV === 'development';
 
 const IN_PATH = path.join(__dirname, 'src/main/resources/assets');
 const OUT_PATH = path.join(__dirname, 'build/resources/main/assets');
+// The MCP Apps card: one self-contained HTML file, outside `assets/` so XP never serves it.
+const UI_IN_PATH = path.join(IN_PATH, 'ui');
+const UI_OUT_PATH = path.join(__dirname, 'build/resources/main/ui');
 // Dev harness: the real React app served without XP, against mocked APIs. Lives outside
 // src/main/resources so Gradle's processResources never ships it.
 const DEV_PATH = path.join(__dirname, 'dev');
@@ -63,7 +68,7 @@ const TARGET_CONFIGS: Record<BuildTarget, UserConfig> = {
       }),
       react(),
       devHarness,
-      ...serveOnly([mockApi(), ...tailwindcss()]),
+      ...serveOnly([mockApi(), mockMcp(), ...tailwindcss()]),
     ],
     build: {
       outDir: OUT_PATH,
@@ -104,6 +109,20 @@ const TARGET_CONFIGS: Record<BuildTarget, UserConfig> = {
             return '[name][extname]';
           },
         },
+      },
+    },
+  },
+  ui: {
+    ...(isProduction && { logLevel: 'warn' }),
+    root: UI_IN_PATH,
+    base: './',
+    plugins: [react(), tailwindcss(), viteSingleFile()],
+    build: {
+      outDir: UI_OUT_PATH,
+      emptyOutDir: true,
+      minify: isProduction,
+      rollupOptions: {
+        input: path.join(UI_IN_PATH, 'card.html'),
       },
     },
   },

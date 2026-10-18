@@ -18,6 +18,7 @@ pnpm check                      # Lint + type-check + tests
 pnpm fix                        # Format + auto-fix lint
 pnpm test                       # Vitest only
 pnpm dev                        # React app on :5275 against mocked APIs, no XP (see dev/)
+pnpm build:dev:ui               # MCP card only; :5275/cards.html then hosts it (see Client code)
 pnpm conformance                # MCP conformance suite against a running XP (manual)
 node dev/mcp-stdio.ts           # stdio→HTTP MCP forwarder for stdio-only clients (README → MCP)
 ```
@@ -48,8 +49,8 @@ node dev/mcp-stdio.ts           # stdio→HTTP MCP forwarder for stdio-only clie
   name a server lib after one of them.
 - `delete` is a reserved word: write a DELETE handler as a named function and export it with
   `export { handleDelete as delete }`.
-- `lib/mcp.ts`, `lib/access.ts`, `lib/shape.ts`, `lib/content-shape.ts`, `lib/node-shape.ts`,
-  `lib/schedule.ts` and `lib/config.ts` stay free of `/lib/xp/*` imports so tests and the dev
+- `lib/mcp.ts`, `lib/access.ts`, `lib/cards.ts`, `lib/shape.ts`, `lib/content-shape.ts`,
+  `lib/node-shape.ts`, `lib/schedule.ts` and `lib/config.ts` stay free of `/lib/xp/*` imports so tests and the dev
   mock can load them directly. Tests reach the other server modules through the `/lib/xp/*`
   stubs aliased in `vite.config.ts`.
   `lib/shape.ts` holds what the content and node tools share (cursors, dot paths, projection),
@@ -61,6 +62,24 @@ node dev/mcp-stdio.ts           # stdio→HTTP MCP forwarder for stdio-only clie
 (`css` target), chosen by the `BUILD_TARGET` env var. `admin/tools/main/main.ts` renders
 `main.html` with asset URLs and a `#grieg-config` JSON blob (API URIs, user, locale, i18n
 phrases), which the React bundle reads at boot.
+
+The `ui` target builds the MCP Apps card from `assets/ui/` into one self-contained file,
+`build/resources/main/ui/card.html`, with `vite-plugin-singlefile`. It sits outside `assets/`
+so XP never serves it, and `processResources` skips `assets/ui/**`. The card reuses the admin
+`Button` and `cn`, and maps the admin token names onto the host's MCP Apps style variables in
+`card.css`, so it follows the host theme. All values render as React text: no
+`dangerouslySetInnerHTML`, no URLs or images from data, no network.
+
+- **ext-apps line:** `@modelcontextprotocol/ext-apps` 2.x with `@modelcontextprotocol/client`
+  and `@modelcontextprotocol/core` 2.x (and `zod` 4) as its peers. Do not add
+  `@modelcontextprotocol/sdk` 1.x: the lines do not mix. 2.x is the current line and tree-shakes
+  to about half the size of 1.x (`App` alone: 230 kB against 427 kB minified).
+- **Writes:** the card calls only read tools (`App.callServerTool`). A write is a `ui/message`
+  asking Claude, so it runs behind the host's approval prompt; never call a write tool from it.
+- **Harness:** `pnpm dev` serves `dev/cards.html`, a stand-in host on the official `AppBridge`.
+  It loads the built card from `/dev-card/<view>` and answers its `tools/call` from
+  `dev/mock-mcp.ts`, which shares the mock API's state. Rebuild with `pnpm build:dev:ui` after a
+  change to the card.
 
 ## Architecture
 
@@ -142,6 +161,11 @@ phrases), which the React bundle reads at boot.
     off the root node, and `exists()` runs as admin, so neither proves access.
   - Every write tool calls `auditWrite()` (`lib/audit.ts`) only after the write lands, inside
     the acting user's context. A failed audit write is logged, never returned as a tool error.
+  - **Cards** (MCP Apps): `lib/cards.ts` maps `workflow_list`, `run_*`, `cron_list` and
+    `node_query`/`node_get`/`node_repos` to four `ui://grieg/*` views of one HTML file, each
+    stamped with `<html data-view>`. `apis/mcp/mcp.ts` reads `ui/card.html` through lib-io once
+    per app start; without it, it logs once and serves no resources or tool `_meta.ui`.
+    `resources/*` and the `resources` capability exist only while there are resources.
   - `node_create` must pass `_inheritsPermissions: true`: without it lib-node grants admins
     everything and `role:system.everyone` READ.
 

@@ -1,4 +1,5 @@
 import * as adminLib from '/lib/xp/admin';
+import * as ioLib from '/lib/xp/io';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { Request } from '@enonic-types/core';
@@ -11,6 +12,7 @@ vi.mock('../../main/resources/lib/keys', () => ({ authenticate: vi.fn(), isAdmin
 const authenticate = vi.mocked(keysLib.authenticate);
 const isAdmin = vi.mocked(keysLib.isAdmin);
 const getToolUrl = vi.mocked(adminLib.getToolUrl);
+const getResource = vi.mocked(ioLib.getResource);
 const warning = vi.fn();
 
 const KEY = `grieg_${'k'.repeat(43)}`;
@@ -74,6 +76,7 @@ beforeEach(() => {
   withConfig();
   vi.stubGlobal('log', { warning, info: vi.fn(), error: vi.fn() });
   getToolUrl.mockReturnValue('/admin/tool/app/main');
+  getResource.mockReturnValue({ exists: () => false } as ReturnType<typeof ioLib.getResource>);
 });
 
 describe('MCP endpoint', () => {
@@ -149,5 +152,77 @@ describe('workflow toolset', () => {
 
     expect(listedTools(KEY).filter((name) => WORKFLOW_TOOLS.includes(name))).toEqual([]);
     expect(callTool(KEY, 'cron_list').text).toContain('`workflows` toolset');
+  });
+});
+
+describe('cards', () => {
+  const HTML = '<!doctype html><html lang="en"><body></body></html>';
+
+  // The card file is read once per module, so each case loads the controller afresh.
+  async function freshPost(exists: boolean): Promise<(auth: string, body: string) => Reply> {
+    vi.resetModules();
+    const io = await import('/lib/xp/io');
+    vi.mocked(io.getResource).mockReturnValue({
+      exists: () => exists,
+      getStream: () => 'stream',
+    } as unknown as ReturnType<typeof io.getResource>);
+    vi.mocked(io.readText).mockReturnValue(HTML);
+    const keys = await import('../../main/resources/lib/keys');
+    vi.mocked(keys.authenticate).mockReturnValue({
+      login: 'alice',
+      idProvider: 'system',
+      admin: true,
+    });
+    const admin = await import('/lib/xp/admin');
+    vi.mocked(admin.getToolUrl).mockReturnValue('/admin/tool/app/main');
+    const controller = await import('../../main/resources/apis/mcp/mcp');
+    return (auth, body) =>
+      JSON.parse(
+        controller.post(request({ Authorization: `Bearer ${auth}` }, body)).body as string,
+      );
+  }
+
+  function toolMeta(reply: Reply, name: string): unknown {
+    const tools = reply.result.tools as { name: string; _meta?: unknown }[];
+    return tools.find((tool) => tool.name === name)?._meta;
+  }
+
+  it('should advertise the views, link the card tools and serve the stamped HTML', async () => {
+    const send = await freshPost(true);
+
+    expect(send(KEY, rpc('initialize')).result.capabilities).toEqual({
+      tools: { listChanged: false },
+      resources: {},
+      extensions: { 'io.modelcontextprotocol/ui': {} },
+    });
+    const tools = send(KEY, rpc('tools/list'));
+    expect(toolMeta(tools, 'workflow_list')).toEqual({
+      ui: { resourceUri: 'ui://grieg/workflows' },
+      'ui/resourceUri': 'ui://grieg/workflows',
+    });
+    expect(toolMeta(tools, 'workflow_run')).toBeUndefined();
+    expect(send(KEY, rpc('resources/read', { uri: 'ui://grieg/crons' })).result).toEqual({
+      contents: [
+        {
+          uri: 'ui://grieg/crons',
+          mimeType: 'text/html;profile=mcp-app',
+          text: '<!doctype html><html data-view="crons" lang="en"><body></body></html>',
+          _meta: { ui: { prefersBorder: true } },
+        },
+      ],
+    });
+  });
+
+  it('should serve no views and log once when the card file is missing', async () => {
+    const send = await freshPost(false);
+
+    const first = send(KEY, rpc('initialize'));
+    const tools = send(KEY, rpc('tools/list'));
+
+    expect(first.result.capabilities).toEqual({ tools: { listChanged: false } });
+    expect(toolMeta(tools, 'workflow_list')).toBeUndefined();
+    expect(warning.mock.calls.filter(([line]) => String(line).includes('no cards'))).toHaveLength(
+      1,
+    );
   });
 });

@@ -25,7 +25,7 @@ type Handler = (params: URLSearchParams, req: IncomingMessage) => Reply | Promis
 
 type MockStep = { id: string; type: string; config?: { prompt?: string; model?: string } };
 
-type MockWorkflow = {
+export type MockWorkflow = {
   id: string;
   name: string;
   displayName: string;
@@ -35,7 +35,7 @@ type MockWorkflow = {
   modifiedAt: string;
 };
 
-const workflows: MockWorkflow[] = [
+export const workflows: MockWorkflow[] = [
   {
     id: 'wf-1',
     name: 'summarize-articles',
@@ -71,7 +71,7 @@ const workflows: MockWorkflow[] = [
   },
 ];
 
-type MockRun = {
+export type MockRun = {
   id: string;
   workflowId: string;
   status: 'running' | 'done' | 'failed' | 'skipped';
@@ -92,7 +92,7 @@ const MAX_RUNS = 20;
 // The steps each run started with, so saving a workflow mid-run does not change the run.
 const runSteps = new Map<string, MockStep[]>();
 
-const runs = new Map<string, MockRun[]>([
+export const runs = new Map<string, MockRun[]>([
   [
     'wf-1',
     [
@@ -127,7 +127,7 @@ const runs = new Map<string, MockRun[]>([
 
 // Advances a running run by wall-clock time: one step per MOCK_STEP_MS. A prompt containing
 // "fail" fails its step, so the failed state can be seen too.
-function advance(run: MockRun): void {
+export function advance(run: MockRun): void {
   if (run.status !== 'running') return;
   const steps = runSteps.get(run.id) ?? [];
   const elapsed = Date.now() - Date.parse(run.startedAt);
@@ -285,7 +285,7 @@ const workflowsApi: Partial<Record<Method, Handler>> = {
   },
 };
 
-type MockJob = {
+export type MockJob = {
   name: string;
   description?: string;
   enabled: boolean;
@@ -299,7 +299,7 @@ type MockJob = {
 
 const RUN_TASK = 'com.enonic.app.grieg:run-workflow';
 
-const cronJobs: MockJob[] = [
+export const cronJobs: MockJob[] = [
   {
     name: scheduleName('wf-1'),
     enabled: true,

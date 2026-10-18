@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Grieg cards (dev host)</title>
+    <style>
+      :root {
+        color-scheme: light;
+        font:
+          14px/1.4 ui-sans-serif,
+          system-ui,
+          sans-serif;
+      }
+      body {
+        margin: 0;
+        background: #faf9f5;
+        color: #141413;
+      }
+      body.dark {
+        color-scheme: dark;
+        background: #1f1e1d;
+        color: #faf9f5;
+      }
+      #harness {
+        display: grid;
+        gap: 16px;
+        padding: 16px;
+      }
+      .controls {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px 12px;
+        align-items: center;
+      }
+      .controls button[aria-pressed='true'] {
+        font-weight: 600;
+        outline: 2px solid currentColor;
+      }
+      .frame {
+        border: 1px solid rgb(127 127 127 / 0.3);
+        border-radius: 12px;
+        overflow: hidden;
+      }
+      .frame iframe {
+        display: block;
+        width: 100%;
+        border: 0;
+      }
+      .log {
+        font:
+          12px/1.5 ui-monospace,
+          monospace;
+        white-space: pre-wrap;
+        margin: 0;
+        max-height: 240px;
+        overflow: auto;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="harness"></div>
+    <script type="module" src="/cards.tsx"></script>
+  </body>
+</html>
