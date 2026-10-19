@@ -76,8 +76,9 @@ draw a run's steps from `runTimeline()` (`js/lib/timeline.ts`). A run records on
 finished, so the waiting ones come from the workflow's current steps, and only while the
 workflow is unchanged since the run started; the card gets the workflow from `run_get`. It maps
 the admin token names onto the host's MCP Apps style variables in `card.css`, so it follows the
-host theme. All values render as React text: no `dangerouslySetInnerHTML`, no URLs or images
-from data, no network.
+host theme. All values render as React text: no `dangerouslySetInnerHTML`, no images, no
+network, and no URL taken from repository data. The only links it opens are the ones the server
+builds itself, `adminUrl` and `editUrl`, through `host.openLink`, which drops anything but http(s).
 
 - **ext-apps line:** `@modelcontextprotocol/ext-apps` 2.x with `@modelcontextprotocol/client`
   and `@modelcontextprotocol/core` 2.x (and `zod` 4) as its peers. Do not add

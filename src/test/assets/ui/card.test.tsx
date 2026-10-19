@@ -855,9 +855,38 @@ describe('content card', () => {
     expect(screen.getByText('brewing')).toBeInTheDocument();
     expect(screen.getByText('Owner ingrid')).toBeInTheDocument();
     expect(screen.queryByText(/Published/)).not.toBeInTheDocument();
+  });
 
-    // The card opens no URL taken from tool data, editUrl included.
-    expect(screen.queryByRole('button', { name: /^Open in/ })).not.toBeInTheDocument();
+  it('should open a hit in Content Studio through the host without drilling down', async () => {
+    const { host, user } = renderCard({
+      total: 1,
+      start: 0,
+      count: 1,
+      hits: [contentHit('a', { project: 'norway', editUrl: `${EDIT}/norway/c-a` })],
+    });
+
+    await user.click(screen.getByRole('button', { name: 'Open Article a in Content Studio' }));
+
+    expect(host.openLink).toHaveBeenCalledExactlyOnceWith(`${EDIT}/norway/c-a`);
+    expect(host.callTool).not.toHaveBeenCalled();
+  });
+
+  it('should open an item in Content Studio by its editUrl, never by a URL in its data', async () => {
+    const { host, user } = renderCard({
+      ...contentHit('a'),
+      data: { link: 'https://attacker.example/phish', image: 'https://attacker.example/i.png' },
+    });
+
+    expect(screen.getByText('https://attacker.example/phish')).toBeInTheDocument();
+    expect(screen.queryByRole('link')).not.toBeInTheDocument();
+    expect(screen.queryByRole('img')).not.toBeInTheDocument();
+    const [only, ...rest] = screen.getAllByRole('button', { name: /^Open in/ });
+    expect(rest).toHaveLength(0);
+
+    await user.click(only);
+
+    expect(only).toHaveAccessibleName('Open in Content Studio');
+    expect(host.openLink).toHaveBeenCalledExactlyOnceWith(`${EDIT}/c-a`);
   });
 
   it('should open the content type and a parent folder from an item', async () => {
@@ -1166,5 +1195,31 @@ describe('createHost', () => {
     expect(await host.ask('Run it again')).toBe(false);
     sendMessage.mockRejectedValueOnce(new Error('Not supported'));
     expect(await host.ask('Run it again')).toBe(false);
+  });
+
+  it('should pass only http(s) links to the host', () => {
+    const openLink = vi.fn().mockResolvedValue({});
+    const host = createHost({ openLink } as unknown as App);
+
+    host.openLink('javascript:alert(1)');
+    host.openLink("javascript:fetch('https://attacker.example')");
+    host.openLink('data:text/html,<p>hi</p>');
+    host.openLink(`${EDIT}/c-a`);
+    host.openLink('HTTPS://xp.example/admin');
+
+    expect(openLink.mock.calls).toEqual([
+      [{ url: `${EDIT}/c-a` }],
+      [{ url: 'HTTPS://xp.example/admin' }],
+    ]);
+  });
+
+  it('should swallow a link the host refuses', async () => {
+    const openLink = vi.fn().mockRejectedValue(new Error('denied'));
+    const host = createHost({ openLink } as unknown as App);
+
+    host.openLink(`${EDIT}/c-a`);
+    await Promise.resolve();
+
+    expect(openLink).toHaveBeenCalledOnce();
   });
 });

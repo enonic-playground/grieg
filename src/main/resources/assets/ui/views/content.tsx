@@ -1,4 +1,12 @@
-import { FileIcon, FileText, Folder, FolderOpen, ImageIcon, Paperclip } from 'lucide-react';
+import {
+  ExternalLink,
+  FileIcon,
+  FileText,
+  Folder,
+  FolderOpen,
+  ImageIcon,
+  Paperclip,
+} from 'lucide-react';
 
 import type { TypeFamily } from '../content';
 import type {
@@ -77,7 +85,7 @@ function childrenArgs(item: Pick<ContentSummary, 'project'>, path: string): Json
 type SearchViewProps = { data: ToolResults['content_search']; args: JsonObject };
 
 export const ContentSearchView = ({ data, args }: SearchViewProps): ReactElement => {
-  const { open, refetch, locale } = useCard();
+  const { host, open, refetch, locale } = useCard();
 
   // A cursor replaces `start`; content_search refuses both together.
   const showMore = () => {
@@ -103,18 +111,30 @@ export const ContentSearchView = ({ data, args }: SearchViewProps): ReactElement
               label={`Open ${hit.path}`}
               onOpen={() => open('content_get', inProjectOf(hit, { key: hit.id }), title)}
               actions={
-                hit.hasChildren === true ? (
+                <>
+                  {hit.hasChildren === true && (
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="size-7"
+                      aria-label={`Browse ${title}`}
+                      title="Browse children"
+                      onClick={() => open('content_search', childrenArgs(hit, hit.path), title)}
+                    >
+                      <FolderOpen />
+                    </Button>
+                  )}
                   <Button
                     size="icon"
                     variant="ghost"
                     className="size-7"
-                    aria-label={`Browse ${title}`}
-                    title="Browse children"
-                    onClick={() => open('content_search', childrenArgs(hit, hit.path), title)}
+                    aria-label={`Open ${title} in Content Studio`}
+                    title="Open in Content Studio"
+                    onClick={() => host.openLink(hit.editUrl)}
                   >
-                    <FolderOpen />
+                    <ExternalLink />
                   </Button>
-                ) : undefined
+                </>
               }
             >
               <div className="flex min-w-0 items-center gap-2">
