@@ -1,6 +1,6 @@
 import * as authLib from '/lib/xp/auth';
 import { createHash } from 'node:crypto';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type * as OauthLib from '../../main/resources/lib/oauth';
 import type { Request, Response } from '@enonic-types/core';
@@ -27,6 +27,10 @@ vi.mock('../../main/resources/lib/grants', () => ({
   refresh: vi.fn(),
 }));
 
+vi.mock('../../main/resources/lib/key-crypto', () => ({
+  randomToken: () => 'r'.repeat(43),
+}));
+
 vi.mock('../../main/resources/lib/keys', () => ({
   MCP_ROLE_NAME: 'com.enonic.app.grieg.mcp',
   MCP_ROLE: 'role:com.enonic.app.grieg.mcp',
@@ -45,10 +49,12 @@ const PRM_PATH = '/.well-known/oauth-protected-resource/api/com.enonic.app.grieg
 const AS_PATH = '/.well-known/oauth-authorization-server/api/com.enonic.app.grieg:oauth';
 const AUTHORIZE = '/api/com.enonic.app.grieg:oauth/authorize';
 const TOKEN = '/api/com.enonic.app.grieg:oauth/token';
+const REGISTER = '/api/com.enonic.app.grieg:oauth/register';
 const CLAUDE = 'https://claude.ai/api/mcp/auth_callback';
 const CHALLENGE = createHash('sha256').update('v'.repeat(43)).digest('base64url');
 
 const warning = vi.fn();
+const info = vi.fn();
 const logError = vi.fn();
 
 function withConfig(config: Record<string, string>): void {
@@ -60,6 +66,7 @@ function request(
   params: Record<string, string | string[]> = {},
   headers: Record<string, string> = {},
   method = 'GET',
+  body?: string,
 ): Request {
   const lower = Object.fromEntries(Object.entries(headers).map(([k, v]) => [k.toLowerCase(), v]));
   return {
@@ -69,9 +76,20 @@ function request(
     method,
     path,
     params,
+    body,
     remoteAddress: '203.0.113.9',
     getHeader: (name: string) => lower[name.toLowerCase()] ?? null,
   } as unknown as Request;
+}
+
+function register(metadata: unknown): Request {
+  return request(
+    REGISTER,
+    {},
+    { 'Content-Type': 'application/json' },
+    'POST',
+    JSON.stringify(metadata),
+  );
 }
 
 function json(response: Response): Record<string, unknown> {
@@ -101,9 +119,9 @@ function approve(headers: Record<string, string> = { Origin: ORIGIN }, decision 
 
 beforeEach(() => {
   vi.resetAllMocks();
-  served.endpoints = ['authorize', 'token'];
+  served.endpoints = ['authorize', 'token', 'register'];
   withConfig({ 'oauth.enabled': 'true' });
-  vi.stubGlobal('log', { warning, info: vi.fn(), error: logError });
+  vi.stubGlobal('log', { warning, info, error: logError });
 });
 
 describe('OAuth well-known API', () => {
@@ -132,6 +150,7 @@ describe('OAuth well-known API', () => {
       expect(oauthApi.get(request(PRM_PATH)).status).toBe(404);
       expect(oauthApi.get(request(AUTHORIZE, authorizeParams())).status).toBe(404);
       expect(oauthApi.post(request(TOKEN, {}, {}, 'POST')).status).toBe(404);
+      expect(oauthApi.post(register({ redirect_uris: [CLAUDE] })).status).toBe(404);
     },
   );
 
@@ -142,9 +161,14 @@ describe('OAuth well-known API', () => {
     expect(oauthApi.get(request(AS_PATH)).status).toBe(404);
   });
 
+  it('should advertise the registration endpoint', () => {
+    expect(json(oauthApi.get(request(AS_PATH))).registration_endpoint).toBe(`${ISSUER}/register`);
+  });
+
   it('should answer 404 for any other path', () => {
     expect(oauthApi.get(request('/.well-known/openid-configuration')).status).toBe(404);
     expect(oauthApi.get(request(TOKEN)).status).toBe(404);
+    expect(oauthApi.get(request(REGISTER)).status).toBe(404);
   });
 });
 
@@ -437,5 +461,84 @@ describe('OAuth token', () => {
       error: 'invalid_request',
       error_description: 'A parameter was sent more than once',
     });
+  });
+});
+
+describe('OAuth register', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('should register a public client with a random id and no secret, uncached', () => {
+    vi.useFakeTimers({ now: new Date('2026-10-19T12:00:00.500Z') });
+
+    const response = oauthApi.post(register({ redirect_uris: [CLAUDE], client_name: 'Claude' }));
+
+    expect(response.status).toBe(201);
+    expect(response.contentType).toBe('application/json');
+    expect(response.headers).toEqual({ 'Cache-Control': 'no-store', Pragma: 'no-cache' });
+    expect(json(response)).toEqual({
+      client_id: `client-${'r'.repeat(43)}`,
+      client_id_issued_at: 1792411200,
+      redirect_uris: [CLAUDE],
+      token_endpoint_auth_method: 'none',
+      grant_types: ['authorization_code', 'refresh_token'],
+      response_types: ['code'],
+    });
+    expect(info).not.toHaveBeenCalled();
+    expect(warning).not.toHaveBeenCalled();
+    expect(logError).not.toHaveBeenCalled();
+  });
+
+  it('should hand out a client_id that authorize accepts', () => {
+    const { client_id } = json(oauthApi.post(register({ redirect_uris: [CLAUDE] })));
+    signIn();
+
+    const response = oauthApi.get(
+      request(AUTHORIZE, authorizeParams({ client_id: String(client_id) })),
+    );
+
+    expect(response.status).toBe(200);
+  });
+
+  it('should refuse a redirect URI outside oauth.redirectUris as invalid_redirect_uri', () => {
+    withConfig({ 'oauth.enabled': 'true', 'oauth.redirectUris': CLAUDE });
+
+    const response = oauthApi.post(
+      register({ redirect_uris: ['https://chatgpt.com/connector_platform_oauth_redirect'] }),
+    );
+
+    expect(response.status).toBe(400);
+    expect(response.headers).toEqual({ 'Cache-Control': 'no-store', Pragma: 'no-cache' });
+    expect(json(response)).toEqual({
+      error: 'invalid_redirect_uri',
+      error_description: 'A redirect URI is not one this server accepts',
+    });
+  });
+
+  it('should refuse a confidential client as invalid_client_metadata', () => {
+    const response = oauthApi.post(
+      register({ redirect_uris: [CLAUDE], token_endpoint_auth_method: 'client_secret_basic' }),
+    );
+
+    expect(response.status).toBe(400);
+    expect(json(response).error).toBe('invalid_client_metadata');
+  });
+
+  it('should refuse an oversized body without echoing it', () => {
+    const response = oauthApi.post(
+      register({ redirect_uris: [CLAUDE], client_name: `<b>${'x'.repeat(20_000)}` }),
+    );
+
+    expect(response.status).toBe(400);
+    expect(json(response).error).toBe('invalid_client_metadata');
+    expect(response.body).not.toContain('<b>');
+  });
+
+  it('should answer 404 until grieg serves registration', () => {
+    served.endpoints = ['authorize', 'token'];
+
+    expect(oauthApi.post(register({ redirect_uris: [CLAUDE] })).status).toBe(404);
+    expect(json(oauthApi.get(request(AS_PATH)))).not.toHaveProperty('registration_endpoint');
   });
 });
