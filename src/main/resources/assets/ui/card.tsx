@@ -17,7 +17,13 @@ import { NodeQueryView, NodeView, ReposView } from './views/nodes';
 import { RunDetailView, RunListView } from './views/runs';
 import { WorkflowsView } from './views/workflows';
 
-type Heading = { title: string; subtitle?: string; adminUrl?: string };
+type Link = { url: string; label: string; title: string };
+
+type Heading = { title: string; subtitle?: string; link?: Link };
+
+function adminLink(url: string): Link {
+  return { url, label: 'Open in the admin tool', title: 'Open in admin' };
+}
 
 function plural(count: number, one: string, many: string): string {
   return `${count} ${count === 1 ? one : many}`;
@@ -34,13 +40,13 @@ function headingOf(screen: Screen): Heading {
       return {
         title: screen.title ?? 'Runs',
         subtitle: `${plural(screen.data.runs.length, 'run', 'runs')}, newest first`,
-        adminUrl: screen.data.adminUrl,
+        link: adminLink(screen.data.adminUrl),
       };
     case 'run_get':
       return {
         title: screen.title ?? 'Run',
         subtitle: screen.data.id,
-        adminUrl: screen.data.adminUrl,
+        link: adminLink(screen.data.adminUrl),
       };
     case 'cron_list':
       return { title: 'Scheduled jobs', subtitle: plural(screen.data.jobs.length, 'job', 'jobs') };
@@ -74,6 +80,11 @@ function headingOf(screen: Screen): Heading {
       return {
         title: screen.title || screen.data.displayName || screen.data.name,
         subtitle: screen.data.path,
+        link: {
+          url: screen.data.editUrl,
+          label: 'Open in Content Studio',
+          title: 'Open in Content Studio',
+        },
       };
     case 'content_type_get':
       return screen.data.draft == null
@@ -209,7 +220,7 @@ export const Card = ({ host, locale, initial }: CardProps): ReactElement => {
     [host, locale, load, refetch, refreshes, ask],
   );
 
-  const { title, subtitle, adminUrl } = headingOf(screen);
+  const { title, subtitle, link } = headingOf(screen);
   const back = () => {
     generation.current += 1;
     setBusy(false);
@@ -238,14 +249,14 @@ export const Card = ({ host, locale, initial }: CardProps): ReactElement => {
               <p className="text-muted-foreground truncate text-xs">{subtitle}</p>
             )}
           </div>
-          {adminUrl != null && (
+          {link != null && (
             <Button
               size="icon"
               variant="ghost"
               className="size-7"
-              aria-label="Open in the admin tool"
-              title="Open in admin"
-              onClick={() => host.openLink(adminUrl)}
+              aria-label={link.label}
+              title={link.title}
+              onClick={() => host.openLink(link.url)}
             >
               <ExternalLink />
             </Button>

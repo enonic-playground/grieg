@@ -12,6 +12,8 @@ export type CardHost = {
   // Puts what the user settled on into the model context for the next message; `false` when
   // the host does not take it.
   share: (text: string, data: JsonObject) => Promise<boolean>;
+  // Takes only a link the server built itself (`adminUrl`, `editUrl`), never one from content
+  // data; anything but http(s) is dropped.
   openLink: (url: string) => void;
 };
 
@@ -72,6 +74,7 @@ export function createHost(app: App): CardHost {
       }
     },
     openLink: (url) => {
+      if (!/^https?:\/\//i.test(url)) return;
       void app.openLink({ url }).catch(() => undefined);
     },
   };
