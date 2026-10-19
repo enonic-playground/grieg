@@ -1,10 +1,11 @@
-import { LoaderCircle } from 'lucide-react';
+import { LoaderCircle, RotateCcw, Stethoscope } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
 import type { TimelineState, TimelineStep } from '../../js/lib/timeline';
 import type { RunDetail, ToolResults } from '../shapes';
 import type { ReactElement } from 'react';
 
+import { Button } from '../../js/components/ui/button';
 import { counter, dateTime, duration, elapsed, relativeTime, shortUser } from '../../js/lib/format';
 import { runTimeline } from '../../js/lib/timeline';
 import { useElapsed } from '../../js/lib/use-elapsed';
@@ -188,7 +189,8 @@ const StepItem = ({ step, index, last, final }: StepItemProps): ReactElement => 
 };
 
 function usePolling(run: RunDetail): void {
-  const { refetch } = useCard();
+  // A refresh starts a fresh round, so a run still going past the cap is not left frozen.
+  const { refetch, refreshes } = useCard();
   const { status, workflowId, id } = run;
 
   useEffect(() => {
@@ -204,8 +206,45 @@ function usePolling(run: RunDetail): void {
       void refetch('run_get', { workflowId, runId: id }, (_current, next) => next);
     }, POLL_MS);
     return () => window.clearInterval(timer);
-  }, [refetch, status, workflowId, id]);
+  }, [refetch, status, workflowId, id, refreshes]);
 }
+
+// Both go to Claude as a message, so a retry runs behind the host's approval prompt.
+const RunActions = ({ run }: { run: RunDetail }): ReactElement => {
+  const { ask } = useCard();
+  const name = run.workflow.displayName;
+  const subject = `the grieg workflow "${name}" (workflowId ${run.workflowId})`;
+
+  return (
+    <div className="mt-2 flex flex-wrap gap-1.5">
+      <Button
+        size="sm"
+        onClick={() =>
+          ask(
+            `Diagnose the failed run ${run.id} of ${subject}: read the run with run_get and the workflow with workflow_list, explain why it failed, and propose a fix.`,
+            `diagnose run ${run.id} of "${name}"`,
+          )
+        }
+      >
+        <Stethoscope />
+        Ask Claude to diagnose
+      </Button>
+      <Button
+        size="sm"
+        variant="ghost"
+        onClick={() =>
+          ask(
+            `Run ${subject} again with workflow_run; its run ${run.id} failed.`,
+            `run "${name}" again`,
+          )
+        }
+      >
+        <RotateCcw />
+        Retry
+      </Button>
+    </div>
+  );
+};
 
 export const RunDetailView = ({ data }: { data: RunDetail }): ReactElement => {
   const { locale } = useCard();
@@ -246,6 +285,7 @@ export const RunDetailView = ({ data }: { data: RunDetail }): ReactElement => {
           <span title={data.user}>as {shortUser(data.user)}</span>
         </Meta>
         {runError != null && <Output text={runError} error />}
+        {data.status === 'failed' && <RunActions run={data} />}
       </div>
 
       <SectionLabel>Steps</SectionLabel>

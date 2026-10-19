@@ -40,6 +40,11 @@ const SCENARIOS: Record<string, Scenario> = {
     tool: 'run_get',
     args: { workflowId: 'wf-1', runId: 'run-seed-2' },
   },
+  'interrupted-run': {
+    view: 'runs',
+    tool: 'run_get',
+    args: { workflowId: 'wf-1', runId: 'run-seed-3' },
+  },
   crons: { view: 'crons', tool: 'cron_list', args: {} },
   repos: { view: 'nodes', tool: 'node_repos', args: {} },
   nodes: {

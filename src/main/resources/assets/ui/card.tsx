@@ -125,6 +125,7 @@ export const Card = ({ host, locale, initial }: CardProps): ReactElement => {
   const [stack, setStack] = useState<Screen[]>([initial]);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<Notice | null>(null);
+  const [refreshes, setRefreshes] = useState(0);
   const screen = stack[stack.length - 1];
   // Bumped by every navigation and refresh, so a slow call cannot land on a screen the user
   // has left or replaced.
@@ -174,6 +175,7 @@ export const Card = ({ host, locale, initial }: CardProps): ReactElement => {
         return;
       }
       setStack((current) => (replace ? [...current.slice(0, -1), next] : [...current, next]));
+      if (replace) setRefreshes((count) => count + 1);
     },
     [host],
   );
@@ -201,9 +203,10 @@ export const Card = ({ host, locale, initial }: CardProps): ReactElement => {
       locale,
       open: (tool, args, title) => void load(tool, args, title, false),
       refetch,
+      refreshes,
       ask,
     }),
-    [host, locale, load, refetch, ask],
+    [host, locale, load, refetch, refreshes, ask],
   );
 
   const { title, subtitle, adminUrl } = headingOf(screen);

@@ -15,6 +15,8 @@ export type CardContextValue = {
     args: JsonObject,
     merge: (current: ToolResults[T], next: ToolResults[T]) => ToolResults[T],
   ) => Promise<void>;
+  // Counts the refreshes that landed, so a screen can start over what it gave up on.
+  refreshes: number;
   // Asks Claude to make a write. `hint` is what the user can type instead when the host does
   // not take the message. Resolves `true` once the host took it.
   ask: (request: string, hint: string) => Promise<boolean>;
