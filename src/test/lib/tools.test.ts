@@ -845,6 +845,73 @@ describe('projects', () => {
     expect(result).toMatchObject({ project: 'default', inheritance: null });
   });
 
+  // Stands in for XP's RepositoryNotFoundException, which GraalJS hands over as a host object.
+  function repositoryNotFound(id: string): Error {
+    return Object.assign(new Error(`Repository with id [${id}] not found`), {
+      getCode: () => 'repositoryNotFound',
+    });
+  }
+
+  it.each([
+    ['without a project', {}],
+    ['naming the configured project', { project: 'default' }],
+  ])(
+    'should refuse a missing configured project, %s, with the unreadable-project message',
+    (_, extra) => {
+      query.mockImplementationOnce(() => {
+        throw repositoryNotFound('com.enonic.cms.default');
+      });
+
+      const outcome = tool('content_search').handler({ ...extra, text: 'x' });
+
+      expect(message(outcome)).toBe(
+        'No project `default` that user:system:editor can read. List the readable ones with project_list.',
+      );
+      expect(getProject).not.toHaveBeenCalled();
+    },
+  );
+
+  it('should report a create in a missing configured project as a missing project, not an XP refusal', () => {
+    getType.mockReturnValueOnce({ name: 'base:folder', form: [] } as unknown as ContentType);
+    create.mockImplementationOnce(() => {
+      throw repositoryNotFound('com.enonic.cms.default');
+    });
+
+    const outcome = tool('content_create').handler({
+      parentPath: '/',
+      contentType: 'base:folder',
+      displayName: 'New',
+    });
+
+    expect(message(outcome)).toBe(
+      'No project `default` that user:system:editor can read. List the readable ones with project_list.',
+    );
+  });
+
+  it('should refuse a card draft for a missing configured project, and read a type without one', () => {
+    getType.mockReturnValue({ name: 'base:folder', form: [] } as unknown as ContentType);
+    query.mockImplementation(() => {
+      throw repositoryNotFound('com.enonic.cms.default');
+    });
+
+    const drafted = tool('content_type_get').handler({
+      name: 'base:folder',
+      draft: { parentPath: '/', data: {} },
+    });
+    const plain = tool('content_type_get').handler({ name: 'base:folder' });
+
+    expect(message(drafted)).toContain('No project `default`');
+    expect(value(plain)).toMatchObject({ name: 'base:folder' });
+  });
+
+  it('should pass any other error from the project repository through', () => {
+    get.mockImplementationOnce(() => {
+      throw Object.assign(new Error('Index read failed'), { getCode: () => 'other' });
+    });
+
+    expect(() => tool('content_get').handler({ key: 'id-1' })).toThrow('Index read failed');
+  });
+
   it('should advertise `project` on every tool that takes it, and name the project', () => {
     for (const name of ['content_search', 'content_get', 'content_update']) {
       const { inputSchema, description } = tool(name);
@@ -905,7 +972,7 @@ describe('projects', () => {
     expect(create).not.toHaveBeenCalled();
   });
 
-  it("should hand a draft back in the project it targets, checked like the other tools", () => {
+  it('should hand a draft back in the project it targets, checked like the other tools', () => {
     getType.mockReturnValue(ARTICLE);
 
     const result = value(

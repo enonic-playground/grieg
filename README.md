@@ -38,7 +38,7 @@ Create `$XP_HOME/config/com.enonic.app.grieg.cfg`:
 # role in. With `mcp.branch = master`, edits made with a personal key go live at once under the
 # key owner's name. `mcp.project` must name an existing project: the shipped `default` works
 # only where a project named `default` exists, and without one every content tool call needs a
-# `project`.
+# `project`; a call without it is refused with a pointer to project_list.
 mcp.project = default
 mcp.branch = draft
 
