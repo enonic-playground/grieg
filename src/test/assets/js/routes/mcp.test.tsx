@@ -510,6 +510,7 @@ describe('connection check', () => {
     expect(ownKeyReads(calls)).toBe(after);
   });
 
+  // Five simulated minutes run about a hundred polls, each a fetch and a full re-render.
   it('should stop polling five minutes after the key was generated', async () => {
     const calls = mockKeysApi(null);
     await generate(calls);
@@ -522,7 +523,7 @@ describe('connection check', () => {
     const after = ownKeyReads(calls);
     await vi.advanceTimersByTimeAsync(30_000);
     expect(ownKeyReads(calls)).toBe(after);
-  });
+  }, 15_000);
 
   it('should not poll while the page is hidden', async () => {
     const calls = mockKeysApi(null);

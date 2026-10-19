@@ -1,11 +1,15 @@
 // ? Only loaded in jsdom tests (per-file annotation), but setup runs for all environments.
 // Guards ensure these mocks are no-ops in node environment.
 
-import { cleanup } from '@testing-library/react';
+import { cleanup, configure } from '@testing-library/react';
 import { afterEach } from 'vitest';
 import '@testing-library/jest-dom/vitest';
 
 afterEach(cleanup);
+
+// Each test file starts in a cold process, so its first full-app render alone can spend most
+// of the default 1000 ms `findBy*` budget; under CPU contention it spends all of it.
+configure({ asyncUtilTimeout: 3000 });
 
 if (typeof window !== 'undefined') {
   // ThemeProvider calls window.matchMedia
