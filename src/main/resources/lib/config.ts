@@ -52,6 +52,14 @@ export function getMcpConfig(): McpConfig {
   };
 }
 
+export type OauthConfig = {
+  enabled: boolean;
+};
+
+export function getOauthConfig(): OauthConfig {
+  return { enabled: value('oauth.enabled')?.toLowerCase() === 'true' };
+}
+
 const DEFAULT_VERTEX_MODEL = 'gemini-3.1-flash-lite';
 
 export type VertexConfig = {

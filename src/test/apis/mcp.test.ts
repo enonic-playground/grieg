@@ -3,12 +3,22 @@ import * as ioLib from '/lib/xp/io';
 import { readFileSync } from 'node:fs';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { Request } from '@enonic-types/core';
+import type * as OauthLib from '../../main/resources/lib/oauth';
+import type { Request, Response } from '@enonic-types/core';
 
 import { post } from '../../main/resources/apis/mcp/mcp';
 import * as keysLib from '../../main/resources/lib/keys';
 
 vi.mock('../../main/resources/lib/keys', () => ({ authenticate: vi.fn(), isAdmin: vi.fn() }));
+
+const served = vi.hoisted(() => ({ endpoints: [] as OauthLib.Endpoint[] }));
+
+vi.mock('../../main/resources/lib/oauth', async (importOriginal) => ({
+  ...(await importOriginal<typeof OauthLib>()),
+  get ENDPOINTS() {
+    return served.endpoints;
+  },
+}));
 
 const authenticate = vi.mocked(keysLib.authenticate);
 const isAdmin = vi.mocked(keysLib.isAdmin);
@@ -74,6 +84,7 @@ function callTool(auth: string, name: string): { isError: boolean; text: string 
 
 beforeEach(() => {
   vi.resetAllMocks();
+  served.endpoints = [];
   withConfig();
   vi.stubGlobal('log', { warning, info: vi.fn(), error: vi.fn() });
   getToolUrl.mockReturnValue('/admin/tool/app/main');
@@ -98,6 +109,67 @@ describe('MCP endpoint', () => {
     const logged = String(warning.mock.calls[0][0]);
     expect(logged).toContain('MCP key lookup failed: Error: repository unavailable');
     expect(logged).not.toContain(KEY);
+  });
+});
+
+describe('401 challenge', () => {
+  const UNAUTHORIZED = {
+    status: 401,
+    contentType: 'application/json',
+    headers: { 'WWW-Authenticate': 'Bearer' },
+    body: JSON.stringify({ status: 401, message: 'Unauthorized', code: 'UNAUTHORIZED' }),
+  };
+
+  function unauthorized(): Response {
+    authenticate.mockReturnValue({ reason: 'unknown key' });
+    return post({
+      ...request({ Authorization: `Bearer ${KEY}` }),
+      scheme: 'https',
+      host: 'cms.example.com',
+      port: 443,
+    } as Request);
+  }
+
+  it('should send a bare Bearer challenge while oauth.enabled is off', () => {
+    served.endpoints = ['authorize', 'token'];
+    withConfig({ 'oauth.enabled': 'false' });
+
+    expect(unauthorized()).toEqual(UNAUTHORIZED);
+  });
+
+  it('should send a bare Bearer challenge while grieg serves no sign-in, even when enabled', () => {
+    served.endpoints = [];
+    withConfig({ 'oauth.enabled': 'true' });
+
+    expect(unauthorized()).toEqual(UNAUTHORIZED);
+  });
+
+  it('should point at the protected resource metadata of the request origin once sign-in is served', () => {
+    served.endpoints = ['authorize', 'token'];
+    withConfig({ 'oauth.enabled': 'true' });
+
+    expect(unauthorized()).toEqual({
+      ...UNAUTHORIZED,
+      headers: {
+        'WWW-Authenticate':
+          'Bearer resource_metadata="https://cms.example.com/.well-known/oauth-protected-resource/api/com.enonic.app.grieg:mcp"',
+      },
+    });
+  });
+
+  it('should leave a refused cookie a 403 without a challenge once sign-in is served', () => {
+    served.endpoints = ['authorize', 'token'];
+    withConfig({ 'oauth.enabled': 'true' });
+
+    const response = post(request({ Cookie: 'JSESSIONID=x' }));
+
+    expect(response.status).toBe(403);
+    expect(response.headers).toBeUndefined();
+    expect(JSON.parse(response.body as string)).toEqual({
+      jsonrpc: '2.0',
+      id: null,
+      error: { code: -32_600, message: 'Requests carrying cookies are not accepted' },
+    });
   });
 });
 

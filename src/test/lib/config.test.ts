@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { getMcpConfig, getVertexConfig } from '../../main/resources/lib/config';
+import { getMcpConfig, getOauthConfig, getVertexConfig } from '../../main/resources/lib/config';
 
 function withConfig(config: Record<string, string>) {
   vi.stubGlobal('app', { config });
@@ -61,6 +61,19 @@ describe('getMcpConfig', () => {
     withConfig({ 'mcp.toolsets': ' ' });
 
     expect(getMcpConfig().toolsets).toEqual([]);
+  });
+});
+
+describe('getOauthConfig', () => {
+  it.each([
+    [undefined, false],
+    ['', false],
+    ['yes', false],
+    [' TRUE ', true],
+  ] as const)('should read oauth.enabled %j as enabled=%s', (raw, enabled) => {
+    withConfig(raw == null ? {} : { 'oauth.enabled': raw });
+
+    expect(getOauthConfig()).toEqual({ enabled });
   });
 });
 

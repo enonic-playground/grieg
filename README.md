@@ -12,6 +12,7 @@ Enonic XP application that orchestrates AI integrations, scheduled jobs and work
 | Crons API     | `/api/com.enonic.app.grieg:crons`     | `role:system.admin`                                            |
 | Keys API      | `/api/com.enonic.app.grieg:keys`      | `role:com.enonic.app.grieg.mcp`; all keys: `role:system.admin` |
 | MCP API       | `/api/com.enonic.app.grieg:mcp`       | public, bearer key                                             |
+| OAuth API     | `/api/com.enonic.app.grieg:oauth`     | public; 404 until discovery is published                       |
 
 Admins and members of `role:com.enonic.app.grieg.mcp` can open the admin tool. The Keys API it lists serves members their own MCP key; the System, Workflows and Crons APIs behind it answer admins only.
 
@@ -69,6 +70,12 @@ mcp.readOnly = false
 # Repositories the node tools may use, comma-separated exact ids. Empty means every
 # repository except `system-repo` and `system.*`, which are always denied.
 mcp.nodes.repos =
+
+# `true` publishes OAuth discovery for MCP connectors once grieg can sign them in: the MCP
+# endpoint's 401 then names its protected resource metadata, which the OAuth API serves. Needs
+# the vhost mappings in [OAuth discovery](#oauth-discovery). grieg does not issue tokens yet, so
+# for now this changes nothing.
+oauth.enabled = false
 
 # Vertex AI (Gemini) for workflow steps, called on the `eu` multi-region endpoint
 # (`aiplatform.eu.rep.googleapis.com`), which keeps requests inside the EU. A 404 reported as
@@ -292,6 +299,50 @@ OpenAI's documentation does not say whether `tunnel-client` passes its own envir
 #### Origin and cookies
 
 Through the tunnel, the forwarder makes the requests, so grieg sees neither an `Origin` nor a cookie, as from any stdio client. Whether ChatGPT's own servers send either when they call an endpoint directly has not been checked. If they send `Origin: https://chatgpt.com`, grieg refuses it as not same-origin, logging the value, until `https://chatgpt.com` is added to `mcp.allowedOrigins`. A request with a cookie is refused whatever the configuration.
+
+### OAuth discovery
+
+ChatGPT, and Claude's custom connectors, find out how to sign in from the endpoint's 401 ([MCP authorization](https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization), RFC 9728). grieg publishes that discovery only while `oauth.enabled = true` and only once it serves its own authorization and token endpoints, which it does not yet. Until both hold, the 401 is a bare `Bearer` challenge, as before, and the OAuth API (`/api/com.enonic.app.grieg:oauth`) answers 404, so no document ever names an endpoint grieg does not serve.
+
+Once both hold:
+
+- The 401 carries `WWW-Authenticate: Bearer resource_metadata="<origin>/.well-known/oauth-protected-resource/api/com.enonic.app.grieg:mcp"`.
+- That URL serves the protected resource metadata: `resource` is `<origin>/api/com.enonic.app.grieg:mcp`, and `authorization_servers` names grieg's issuer, `<origin>/api/com.enonic.app.grieg:oauth`.
+- `/.well-known/oauth-authorization-server/api/com.enonic.app.grieg:oauth` serves the authorization server metadata (RFC 8414): the authorization and token endpoints under the issuer, the registration endpoint once there is one, the `code` response type, the `authorization_code` and `refresh_token` grants, and S256 PKCE.
+
+The URLs are built from the request as XP resolves it, `X-Forwarded-*` included, so the origin must be the one clients connect to, on one stable host. `resource` is always that origin plus `/api/com.enonic.app.grieg:mcp`, and a client refuses metadata whose `resource` differs from the URL it connected to, so expose the endpoint at that path and not under another one. The documents are sent with `Cache-Control: no-store`.
+
+XP needs vhosts for this, in `$XP_HOME/config/com.enonic.xp.web.vhost.cfg`, for two reasons. On a mapping with a default ID provider, and with vhosts off, XP replaces the endpoint's 401 with its login page and drops `WWW-Authenticate`; a mapping with no ID provider keeps both. And the root `/.well-known/*` reaches an app's API only through a mapping. Map the endpoint, `/.well-known` and the token endpoint without an ID provider, and keep the catch-all for everything else, with your own host instead of `localhost`. The token endpoint is not served yet; its mapping is here so the configuration need not change when it is, since a client's failed token request also gets a 401 that a mapping with an ID provider would turn into the login page.
+
+```properties
+enabled = true
+
+mapping.mcp.host = localhost
+mapping.mcp.source = /api/com.enonic.app.grieg:mcp
+mapping.mcp.target = /api/com.enonic.app.grieg:mcp
+
+mapping.wk.host = localhost
+mapping.wk.source = /.well-known
+mapping.wk.target = /api/com.enonic.app.grieg:oauth/well-known
+
+mapping.token.host = localhost
+mapping.token.source = /api/com.enonic.app.grieg:oauth/token
+mapping.token.target = /api/com.enonic.app.grieg:oauth/token
+
+mapping.root.host = localhost
+mapping.root.source = /
+mapping.root.target = /
+mapping.root.idProvider.system = default
+```
+
+The `wk` mapping hands every `/.well-known/*` path on that host to grieg, which answers 404 for any document but its own. The OAuth API also serves the same documents under its own path, `/api/com.enonic.app.grieg:oauth/well-known/<document>/<path>`, which is useful for checking it without the mapping; clients look only at the root. XP answers `OPTIONS` itself without CORS headers, so a browser-based client cannot read the documents; ChatGPT and Claude fetch them from their servers.
+
+Until grieg serves sign-in, the mapping can be checked by its 404 alone: grieg answers with a JSON body (`"code":"NOT_FOUND"`), and a 404 without it never reached grieg.
+
+```bash
+curl -si -X POST http://localhost:8080/api/com.enonic.app.grieg:mcp | grep -i www-authenticate
+curl -s http://localhost:8080/.well-known/oauth-protected-resource/api/com.enonic.app.grieg:mcp
+```
 
 ### Troubleshooting
 
