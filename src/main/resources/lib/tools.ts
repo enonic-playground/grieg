@@ -241,7 +241,12 @@ export function createContentTools(config: ToolsConfig, editBase: string): Tool[
       },
       required: ['total', 'start', 'count', 'hits'],
     },
-    annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
     handler: (args) => {
       const parsed = parseSearchArgs(args);
       if (!parsed.ok) return fail(parsed.message);
@@ -306,7 +311,12 @@ export function createContentTools(config: ToolsConfig, editBase: string): Tool[
       },
       required: Object.keys(SUMMARY_PROPERTIES),
     },
-    annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
     handler: (args) => {
       const parsed = parseGetArgs(args);
       if (!parsed.ok) return fail(parsed.message);
@@ -356,7 +366,12 @@ export function createContentTools(config: ToolsConfig, editBase: string): Tool[
       },
       required: ['name', 'displayName', 'abstract', 'allowChildContent', 'form'],
     },
-    annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
     handler: (args) => {
       const unknown = unknownKeys(args, ['name']);
       if (unknown != null) return fail(unknown);

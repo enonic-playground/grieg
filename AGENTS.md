@@ -179,6 +179,10 @@ server's tools in `src/test/apis/mcp.test.ts`, so a new tool goes into both.
     stamped with `<html data-view>`. `apis/mcp/mcp.ts` reads `ui/card.html` through lib-io once
     per app start; without it, it logs once and serves no resources or tool `_meta.ui`.
     `resources/*` and the `resources` capability exist only while there are resources.
+    `describeTools` names a tool's view three ways: `_meta.ui.resourceUri`, the flat
+    `ui/resourceUri`, and ChatGPT's `openai/outputTemplate`.
+  - `ToolAnnotations` requires `readOnlyHint`, `destructiveHint` and `openWorldHint`, which
+    ChatGPT lists as required; it treats a tool without `readOnlyHint` as a write.
   - `node_create` must pass `_inheritsPermissions: true`: without it lib-node grants admins
     everything and `role:system.everyone` READ.
 

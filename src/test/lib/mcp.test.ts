@@ -26,7 +26,12 @@ const echo: Tool = {
   description: 'Echoes its argument',
   inputSchema: { type: 'object', properties: { value: { type: 'string' } } },
   outputSchema: { type: 'object', properties: { echoed: { type: 'string' } } },
-  annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
+  annotations: {
+    readOnlyHint: true,
+    destructiveHint: false,
+    idempotentHint: true,
+    openWorldHint: false,
+  },
   handler: (args) =>
     typeof args.value === 'string'
       ? { ok: true, value: { echoed: args.value } }
@@ -550,7 +555,7 @@ describe('handle: MCP Apps resources', () => {
     );
   });
 
-  it('should list a tool with its view in _meta, in the nested and the flat form', () => {
+  it('should list a tool with its view in _meta, nested, flat and as the ChatGPT alias', () => {
     const tools = result(legacy('tools/list', undefined, {}, APPS_SERVER)).tools as Record<
       string,
       unknown
@@ -559,6 +564,7 @@ describe('handle: MCP Apps resources', () => {
     expect(tools[0]._meta).toEqual({
       ui: { resourceUri: CARD.uri },
       'ui/resourceUri': CARD.uri,
+      'openai/outputTemplate': CARD.uri,
     });
     expect(tools[1]).not.toHaveProperty('_meta');
   });
@@ -651,7 +657,12 @@ describe('selectTools', () => {
   const write: Tool = {
     ...echo,
     name: 'write',
-    annotations: { readOnlyHint: false, idempotentHint: true, openWorldHint: false },
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
   };
   const toolsets = { content: [echo, write], nodes: [boom] };
 

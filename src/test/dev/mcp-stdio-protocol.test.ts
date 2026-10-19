@@ -29,7 +29,12 @@ const echo: Tool = {
   description: 'Echoes its argument',
   inputSchema: { type: 'object' },
   outputSchema: { type: 'object' },
-  annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
+  annotations: {
+    readOnlyHint: true,
+    destructiveHint: false,
+    idempotentHint: true,
+    openWorldHint: false,
+  },
   handler: (args) => ({ ok: true, value: { echoed: args.value } }),
 };
 

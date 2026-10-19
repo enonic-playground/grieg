@@ -187,7 +187,12 @@ const CRON_JOB_SCHEMA = {
   ),
 };
 
-const READ_ANNOTATIONS = { readOnlyHint: true, idempotentHint: true, openWorldHint: false };
+const READ_ANNOTATIONS = {
+  readOnlyHint: true,
+  destructiveHint: false,
+  idempotentHint: true,
+  openWorldHint: false,
+};
 
 //
 // * Tools

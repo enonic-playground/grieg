@@ -188,7 +188,12 @@ const DSL_SCHEMA = { type: 'object' };
 
 const SCALAR_SCHEMA = { type: ['string', 'number', 'boolean'] };
 
-const READ_ANNOTATIONS = { readOnlyHint: true, idempotentHint: true, openWorldHint: false };
+const READ_ANNOTATIONS = {
+  readOnlyHint: true,
+  destructiveHint: false,
+  idempotentHint: true,
+  openWorldHint: false,
+};
 
 //
 // * Tools
