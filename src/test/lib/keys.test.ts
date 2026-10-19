@@ -4,6 +4,7 @@ import * as nodeLib from '/lib/xp/node';
 import { createHash } from 'node:crypto';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import * as grantsLib from '../../main/resources/lib/grants';
 import {
   authenticate,
   deleteByOwner,
@@ -20,6 +21,8 @@ import {
 
 const TOKEN = `abcd${'x'.repeat(35)}wxyz`;
 
+vi.mock('../../main/resources/lib/grants', () => ({ resolveAccess: vi.fn() }));
+
 vi.mock('../../main/resources/lib/key-crypto', () => ({
   randomToken: () => TOKEN,
   sha256Hex: (text: string) => createHash('sha256').update(text, 'utf8').digest('hex'),
@@ -30,6 +33,7 @@ const run = vi.mocked(contextLib.run);
 const getPrincipal = vi.mocked(authLib.getPrincipal);
 const createRole = vi.mocked(authLib.createRole);
 const getMemberships = vi.mocked(authLib.getMemberships);
+const resolveAccess = vi.mocked(grantsLib.resolveAccess);
 
 const OWNER = 'user:system:alice';
 const NOW = new Date('2026-10-13T10:00:00.000Z');
@@ -103,6 +107,7 @@ function ownerQuery(owner: string) {
 beforeEach(() => {
   vi.clearAllMocks();
   vi.stubGlobal('log', { warning, info: vi.fn() });
+  vi.stubGlobal('app', { config: { 'oauth.enabled': 'true' } });
   for (const fn of Object.values(connection)) fn.mockReset();
   connect.mockReturnValue(connection as never);
   connection.exists.mockReturnValue(true);
@@ -115,6 +120,7 @@ beforeEach(() => {
   getPrincipal.mockReturnValue({} as never);
   createRole.mockReset();
   getMemberships.mockReset();
+  resolveAccess.mockReset();
 });
 
 describe('generate', () => {
@@ -310,6 +316,88 @@ describe('authenticate', () => {
     expect(JSON.stringify(result)).not.toContain('a'.repeat(8));
     expect(JSON.stringify(result)).not.toContain(sha256(KEY));
     expect(connection.update).not.toHaveBeenCalled();
+  });
+
+  it('should not look up a bearer that is not shaped like a key', () => {
+    expect(authenticate('grieg_short', NOW)).toEqual({ reason: 'unknown MCP key' });
+    expect(connection.get).not.toHaveBeenCalled();
+    expect(resolveAccess).not.toHaveBeenCalled();
+  });
+
+  describe('an OAuth key', () => {
+    beforeEach(() => {
+      connection.get.mockReturnValue(null);
+    });
+
+    it('should be tried only after the personal keys miss, and admit its owner', () => {
+      resolveAccess.mockReturnValue({ owner: OWNER, clientId: 'claude' });
+
+      expect(authenticate(KEY, NOW)).toEqual({
+        login: 'alice',
+        idProvider: 'system',
+        admin: false,
+      });
+      expect(connection.get).toHaveBeenCalledWith(`/mcp/keys/${sha256(KEY)}`);
+      expect(resolveAccess).toHaveBeenCalledWith(KEY, NOW);
+    });
+
+    it('should not be tried when a personal key matches', () => {
+      connection.get.mockReturnValue(storedNode(record()));
+
+      authenticate(KEY, NOW);
+
+      expect(resolveAccess).not.toHaveBeenCalled();
+    });
+
+    it.each<[string, () => void, string]>([
+      ['a missing owner', () => getPrincipal.mockReturnValue(null), 'no longer exists'],
+      [
+        'a disabled owner',
+        () => getPrincipal.mockReturnValue({ disabled: true } as never),
+        'is disabled',
+      ],
+      [
+        'an owner outside the role',
+        () => entitle('role:system.everyone'),
+        'does not hold role:com.enonic.app.grieg.mcp',
+      ],
+    ])('should refuse %s, as for a personal key', (_label, arrange, refusal) => {
+      resolveAccess.mockReturnValue({ owner: OWNER, clientId: 'claude' });
+      arrange();
+
+      expect(authenticate(KEY, NOW)).toEqual({
+        reason: `owner ${OWNER} of an OAuth key for claude ${refusal}`,
+      });
+    });
+
+    it('should report an admin owner as admin', () => {
+      resolveAccess.mockReturnValue({ owner: OWNER, clientId: 'claude' });
+      entitle('role:com.enonic.app.grieg.mcp', 'role:system.admin');
+
+      expect(authenticate(KEY, NOW)).toEqual({ login: 'alice', idProvider: 'system', admin: true });
+    });
+
+    it('should pass on the reason an OAuth key was refused', () => {
+      resolveAccess.mockReturnValue({ reason: 'OAuth key of a revoked grant' });
+
+      expect(authenticate(KEY, NOW)).toEqual({ reason: 'OAuth key of a revoked grant' });
+    });
+
+    it('should not be admitted once oauth.enabled is off', () => {
+      vi.stubGlobal('app', { config: {} });
+      resolveAccess.mockReturnValue({ owner: OWNER, clientId: 'claude' });
+
+      expect(authenticate(KEY, NOW)).toEqual({
+        reason: 'unknown MCP key; OAuth keys are off',
+      });
+      expect(resolveAccess).not.toHaveBeenCalled();
+    });
+
+    it('should report a key neither store knows as unknown', () => {
+      resolveAccess.mockReturnValue(undefined);
+
+      expect(authenticate(KEY, NOW)).toEqual({ reason: 'unknown MCP key' });
+    });
   });
 });
 

@@ -238,6 +238,10 @@ export default defineConfig({
         find: /^\/lib\/http-client$/,
         replacement: path.join(__dirname, 'src/test/stubs/http-client.ts'),
       },
+      {
+        find: /^\/lib\/mustache$/,
+        replacement: path.join(__dirname, 'src/test/stubs/mustache.ts'),
+      },
     ],
     setupFiles: ['./src/test/setup-dom.ts', './src/test/setup-i18n.ts'],
     passWithNoTests: true,

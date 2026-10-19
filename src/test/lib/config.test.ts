@@ -73,8 +73,52 @@ describe('getOauthConfig', () => {
   ] as const)('should read oauth.enabled %j as enabled=%s', (raw, enabled) => {
     withConfig(raw == null ? {} : { 'oauth.enabled': raw });
 
-    expect(getOauthConfig()).toEqual({ enabled });
+    expect(getOauthConfig().enabled).toBe(enabled);
   });
+
+  it('should allow Claude and ChatGPT callbacks, 1 h access and 30 d refresh by default', () => {
+    withConfig({});
+
+    expect(getOauthConfig()).toEqual({
+      enabled: false,
+      redirectUris: [
+        'https://claude.ai/api/mcp/auth_callback',
+        'https://claude.com/api/mcp/auth_callback',
+        'https://chatgpt.com/connector_platform_oauth_redirect',
+      ],
+      accessTokenTtlMs: 3_600_000,
+      refreshTokenTtlMs: 2_592_000_000,
+    });
+  });
+
+  it('should read oauth.redirectUris as a list, and blank as no redirect URIs', () => {
+    withConfig({ 'oauth.redirectUris': ' https://a.example/cb , https://b.example/cb ' });
+    expect(getOauthConfig().redirectUris).toEqual(['https://a.example/cb', 'https://b.example/cb']);
+
+    withConfig({ 'oauth.redirectUris': ' ' });
+    expect(getOauthConfig().redirectUris).toEqual([]);
+  });
+
+  it('should read the token lifetimes in seconds, down to 60', () => {
+    withConfig({ 'oauth.accessTokenTtl': '60', 'oauth.refreshTokenTtl': ' 86400 ' });
+
+    expect(getOauthConfig()).toMatchObject({
+      accessTokenTtlMs: 60_000,
+      refreshTokenTtlMs: 86_400_000,
+    });
+  });
+
+  it.each(['59', '1.5', 'soon', '-1'])(
+    'should fall back to the default lifetimes for %j',
+    (raw) => {
+      withConfig({ 'oauth.accessTokenTtl': raw, 'oauth.refreshTokenTtl': raw });
+
+      expect(getOauthConfig()).toMatchObject({
+        accessTokenTtlMs: 3_600_000,
+        refreshTokenTtlMs: 2_592_000_000,
+      });
+    },
+  );
 });
 
 describe('getVertexConfig', () => {

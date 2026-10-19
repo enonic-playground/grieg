@@ -113,7 +113,8 @@ server's tools in `src/test/apis/mcp.test.ts`, so a new tool goes into both.
   `lib/repo.ts`, which runs in an admin context: callers are authorized before they reach it.
   `/workflows` carries `ADMIN_ONLY` and its children inherit it, so the MCP node tools cannot
   read the store as a non-admin user; `initWorkflows()` re-applies it on startup.
-- **MCP keys** live under `/mcp/keys` in the same repository (`lib/keys.ts`). `/mcp` and
+- **MCP keys** live under `/mcp/keys` in the same repository (`lib/keys.ts`); OAuth grants live
+  apart under `/mcp/oauth` (see OAuth grants), so a key rotation never touches them. `/mcp` and
   `/mcp/keys` carry an admin-only ACL (`ADMIN_ONLY` in `lib/repo.ts`), because the node tools
   can reach this repository as a non-admin user. A key node is named by the SHA-256 hex digest
   of the key, so a lookup is a `get` by path; the plaintext is returned once and never stored.
@@ -208,9 +209,32 @@ server's tools in `src/test/apis/mcp.test.ts`, so a new tool goes into both.
     and the API's `well-known` GET serves RFC 9728 and RFC 8414 metadata, which the root
     `/.well-known` reaches only through a vhost mapping. `lib/oauth.ts` builds every URL from the
     request origin (`originOf`) and the fixed `/api/<app>:mcp` and `/api/<app>:oauth` paths.
-    `ENDPOINTS` lists what the API serves, and nothing is published (challenge, either document)
-    until `oauth.enabled` is on and it holds `authorize` and `token`: the MCP spec requires the
-    resource metadata to name an authorization server, and none may be advertised before it works.
+    `ENDPOINTS` lists what the API serves, and nothing is published (challenge, either document,
+    either endpoint) until `oauth.enabled` is on and it holds `authorize` and `token`: the MCP
+    spec requires the resource metadata to name an authorization server, and none may be
+    advertised before it works. Add `register` to `ENDPOINTS` only with its handler.
+  - **OAuth grants**: `apis/oauth` routes `authorize` (GET consent page, POST decision) and `token`
+    on `req.path`; form bodies arrive in `req.params`. `lib/oauth.ts` holds the pure protocol
+    (request validation, PKCE, the `iss`-carrying redirect, `matchRefresh`), `lib/grants.ts` the
+    store under `/mcp/oauth/{grants,codes,access}`, all `ADMIN_ONLY` and digest-named except
+    grants, which take a random hex id that the refresh token (`<grantId>.<secret>`) carries.
+    `lib/keys.ts` `authenticate()` falls through to `resolveAccess()` on a personal-key miss and
+    runs the same `checkOwner()`, which grants also get injected; `lib/grants.ts` never imports
+    `lib/keys.ts`. `/authorize` gets XP's login only by returning 401 from the controller (a
+    descriptor `allow` gives a bare 401), so the API stays public and the handler checks the
+    session user and `hasRole(MCP_ROLE_NAME)` itself; `/token` must stay on a vhost mapping
+    with no ID provider, or its errors become the login page. The consent POST is refused unless
+    `Origin` (or `Sec-Fetch-Site`) is same-origin, and re-validates every posted parameter.
+    lib-node has no lock or version check, so each consume (code claim, refresh rotation) writes
+    and then reads the node again; that catches most lost races but not two reads that both come
+    before either write. When two refreshes race that way, both succeed, and the next use of the
+    losing refresh token counts as reuse and revokes the grant. Keep one writer per node where
+    possible: `lastUsed` is recorded on the access node, because a write to the grant from an MCP
+    request could undo a rotation. A client_id is an unverified label until client registration
+    lands; the exact `oauth.redirectUris` match admits a client. Never
+    log a code, a token, a verifier or a digest; the grant id is half a refresh token, so it stays
+    out of logs too. The consent page renders through `/lib/mustache`, which tests alias to
+    `src/test/stubs/mustache.ts`.
   - `node_create` must pass `_inheritsPermissions: true`: without it lib-node grants admins
     everything and `role:system.everyone` READ.
 
@@ -239,7 +263,7 @@ XP 8 replaced XML descriptors with YAML. Older XP docs show XML; ignore them.
    A types package that declares its module as an augmentation, as `/lib/http-client` does,
    also goes in `types`, and its `types/*.d.ts` is an empty module for it to augment.
 4. Tests alias only `/lib/xp/*` to `src/test/stubs/xp/`; any other path needs its own alias
-   in `vite.config.ts` and a stub, as `/lib/http-client` has.
+   in `vite.config.ts` and a stub, as `/lib/http-client` and `/lib/mustache` have.
 
 ## Git & GitHub
 

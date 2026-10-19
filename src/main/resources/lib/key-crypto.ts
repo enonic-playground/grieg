@@ -1,4 +1,5 @@
-// JVM-backed primitives for MCP keys. Tests mock this module: the Vitest runtime has no `Java`.
+// JVM-backed primitives for MCP keys and OAuth tokens. Tests mock this module: the Vitest runtime
+// has no `Java`.
 
 type ByteArray = unknown;
 
@@ -20,7 +21,7 @@ export function randomToken(): string {
   return base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
 }
 
-export function sha256Hex(text: string): string {
+function sha256(text: string): ByteArray {
   const digest = (
     Java.type('java.security.MessageDigest') as unknown as {
       getInstance(algorithm: string): Digest;
@@ -32,8 +33,18 @@ export function sha256Hex(text: string): string {
     }
   ).UTF_8;
   digest.update(utf8.encode(text));
+  return digest.digest();
+}
+
+export function sha256Hex(text: string): string {
   const hex = Java.type('java.util.HexFormat') as unknown as {
     of(): { formatHex(bytes: ByteArray): string };
   };
-  return hex.of().formatHex(digest.digest());
+  return hex.of().formatHex(sha256(text));
+}
+
+// The PKCE S256 transform (RFC 7636 §4.2).
+export function sha256Base64Url(text: string): string {
+  const base64 = Java.type('java.util.Base64') as unknown as { getUrlEncoder(): Encoder };
+  return base64.getUrlEncoder().withoutPadding().encodeToString(sha256(text));
 }

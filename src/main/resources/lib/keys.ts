@@ -3,6 +3,8 @@ import { createRole, getMemberships, getPrincipal } from '/lib/xp/auth';
 import type { KeyResolution } from './access';
 import type { Node } from '/lib/xp/node';
 
+import { getOauthConfig } from './config';
+import { resolveAccess } from './grants';
 import { randomToken, sha256Hex } from './key-crypto';
 import { ensureAdminFolder, getConnection, runInRepo } from './repo';
 
@@ -213,8 +215,8 @@ export function isAdmin(user: string): boolean {
 }
 
 // Checked on every request, so removing the owner from the role or disabling them stops the
-// key at once rather than at expiry.
-function checkOwner(owner: string): { refusal: string } | { admin: boolean } {
+// key at once rather than at expiry. OAuth grants run it too, at every code exchange and refresh.
+export function checkOwner(owner: string): { refusal: string } | { admin: boolean } {
   if (!isUserKey(owner)) return { refusal: 'is not a user' };
   return runInRepo(() => {
     const user = getPrincipal(owner);
@@ -226,16 +228,37 @@ function checkOwner(owner: string): { refusal: string } | { admin: boolean } {
   });
 }
 
+function admit(owner: string, admin: boolean): KeyResolution {
+  const [, idProvider, login] = owner.split(':');
+  return { login, idProvider, admin };
+}
+
+// An OAuth access key has the personal key's shape, so a miss falls through to the grants.
+function authenticateOauth(bearer: string, now: Date): KeyResolution {
+  if (!getOauthConfig().enabled) return { reason: 'unknown MCP key; OAuth keys are off' };
+  const access = resolveAccess(bearer, now);
+  if (access == null) return { reason: 'unknown MCP key' };
+  if ('reason' in access) return access;
+
+  const owner = checkOwner(access.owner);
+  if ('refusal' in owner) {
+    return {
+      reason: `owner ${access.owner} of an OAuth key for ${access.clientId} ${owner.refusal}`,
+    };
+  }
+  return admit(access.owner, owner.admin);
+}
+
 // Reasons go to the log, so they never carry the key or its digest.
 export function authenticate(bearer: string, now = new Date()): KeyResolution {
+  if (!KEY_PATTERN.test(bearer)) return { reason: 'unknown MCP key' };
   const key = resolve(bearer);
-  if (key == null) return { reason: 'unknown MCP key' };
+  if (key == null) return authenticateOauth(bearer, now);
   if (isExpired(key, now)) return { reason: `MCP key of ${key.owner} expired at ${key.expires}` };
 
   const owner = checkOwner(key.owner);
   if ('refusal' in owner) return { reason: `owner ${key.owner} of an MCP key ${owner.refusal}` };
 
   touch(key, now);
-  const [, idProvider, login] = key.owner.split(':');
-  return { login, idProvider, admin: owner.admin };
+  return admit(key.owner, owner.admin);
 }

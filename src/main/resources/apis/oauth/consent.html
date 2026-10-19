@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="referrer" content="no-referrer" />
+    <title>{{title}}</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        font-family: system-ui, sans-serif;
+      }
+      body {
+        margin: 0;
+        padding: 16px;
+        background: Canvas;
+        color: CanvasText;
+      }
+      main {
+        max-width: 32rem;
+        margin: 10vh auto 0;
+      }
+      h1 {
+        font-size: 1.25rem;
+      }
+      dl {
+        display: grid;
+        grid-template-columns: max-content 1fr;
+        gap: 0.25rem 1rem;
+      }
+      dt {
+        font-weight: 600;
+      }
+      dd {
+        margin: 0;
+        overflow-wrap: anywhere;
+      }
+      .warning {
+        padding: 0.75rem;
+        border: 1px solid GrayText;
+        border-radius: 0.5rem;
+      }
+      .actions {
+        display: flex;
+        gap: 0.5rem;
+        margin-top: 1.5rem;
+      }
+      button {
+        font: inherit;
+        padding: 0.5rem 1rem;
+        cursor: pointer;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      {{#error}}
+      <h1>{{title}}</h1>
+      <p>{{message}}</p>
+      {{/error}} {{^error}}
+      <h1>{{title}}</h1>
+      <p>
+        <strong>{{client}}</strong> asks to use Grieg's MCP tools on <strong>{{instance}}</strong>
+        as you, with your permissions, until you revoke it or it expires.
+      </p>
+      <dl>
+        <dt>Signed in as</dt>
+        <dd>{{user}}</dd>
+        <dt>Returns to</dt>
+        <dd>{{redirectHost}}</dd>
+        <dt>Client id</dt>
+        <dd>{{clientId}} (as the client reports it)</dd>
+      </dl>
+      <p class="warning">
+        Approve only if you started this connection yourself, from {{client}}. Anyone who sends you
+        this page can connect their own {{client}} account to yours.
+      </p>
+      <form method="post" action="{{action}}">
+        {{#fields}}
+        <input type="hidden" name="{{name}}" value="{{value}}" />
+        {{/fields}}
+        <div class="actions">
+          <button type="submit" name="decision" value="approve">Approve</button>
+          <button type="submit" name="decision" value="deny">Deny</button>
+        </div>
+      </form>
+      {{/error}}
+    </main>
+  </body>
+</html>

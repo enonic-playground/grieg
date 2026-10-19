@@ -52,12 +52,39 @@ export function getMcpConfig(): McpConfig {
   };
 }
 
+// Claude's hosted apps (claude.ai, and claude.com, which Anthropic says it may move to) and
+// ChatGPT's fixed callback, which ChatGPT uses because grieg returns `iss` (RFC 9207).
+export const DEFAULT_REDIRECT_URIS = [
+  'https://claude.ai/api/mcp/auth_callback',
+  'https://claude.com/api/mcp/auth_callback',
+  'https://chatgpt.com/connector_platform_oauth_redirect',
+];
+const DEFAULT_ACCESS_TOKEN_TTL_S = 60 * 60;
+const DEFAULT_REFRESH_TOKEN_TTL_S = 30 * 24 * 60 * 60;
+const MIN_TTL_S = 60;
+
 export type OauthConfig = {
   enabled: boolean;
+  // Exact matches only.
+  redirectUris: string[];
+  accessTokenTtlMs: number;
+  // Idle lifetime: each refresh extends it, up to the grant's fixed 90 days.
+  refreshTokenTtlMs: number;
 };
 
+function seconds(key: string, fallback: number): number {
+  const parsed = Number(value(key));
+  return Number.isInteger(parsed) && parsed >= MIN_TTL_S ? parsed : fallback;
+}
+
 export function getOauthConfig(): OauthConfig {
-  return { enabled: value('oauth.enabled')?.toLowerCase() === 'true' };
+  return {
+    enabled: value('oauth.enabled')?.toLowerCase() === 'true',
+    redirectUris:
+      app.config['oauth.redirectUris'] == null ? DEFAULT_REDIRECT_URIS : list('oauth.redirectUris'),
+    accessTokenTtlMs: seconds('oauth.accessTokenTtl', DEFAULT_ACCESS_TOKEN_TTL_S) * 1000,
+    refreshTokenTtlMs: seconds('oauth.refreshTokenTtl', DEFAULT_REFRESH_TOKEN_TTL_S) * 1000,
+  };
 }
 
 const DEFAULT_VERTEX_MODEL = 'gemini-3.1-flash-lite';
