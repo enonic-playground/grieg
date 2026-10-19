@@ -12,7 +12,7 @@ Enonic XP application that orchestrates AI integrations, scheduled jobs and work
 | Crons API     | `/api/com.enonic.app.grieg:crons`     | `role:system.admin`                                            |
 | Keys API      | `/api/com.enonic.app.grieg:keys`      | `role:com.enonic.app.grieg.mcp`; all keys: `role:system.admin` |
 | MCP API       | `/api/com.enonic.app.grieg:mcp`       | public, bearer key                                             |
-| OAuth API     | `/api/com.enonic.app.grieg:oauth`     | public; 404 until discovery is published                       |
+| OAuth API     | `/api/com.enonic.app.grieg:oauth`     | public; 404 until `oauth.enabled`; consent needs the MCP role  |
 
 Admins and members of `role:com.enonic.app.grieg.mcp` can open the admin tool. The Keys API it lists serves members their own MCP key; the System, Workflows and Crons APIs behind it answer admins only.
 
@@ -71,11 +71,19 @@ mcp.readOnly = false
 # repository except `system-repo` and `system.*`, which are always denied.
 mcp.nodes.repos =
 
-# `true` publishes OAuth discovery for MCP connectors once grieg can sign them in: the MCP
-# endpoint's 401 then names its protected resource metadata, which the OAuth API serves. Needs
-# the vhost mappings in [OAuth discovery](#oauth-discovery). grieg does not issue tokens yet, so
-# for now this changes nothing.
+# `true` lets MCP connectors sign in through OAuth: the MCP endpoint's 401 names its protected
+# resource metadata, and the OAuth API serves discovery, consent and tokens. Needs the vhost
+# mappings in [OAuth sign-in](#oauth-sign-in).
 oauth.enabled = false
+# Redirect URIs a client may send the user back to, comma-separated, matched exactly. Unset means
+# Claude's (claude.ai, and claude.com, where Anthropic says it may move) and ChatGPT's fixed
+# callback; a blank value admits none.
+oauth.redirectUris = https://claude.ai/api/mcp/auth_callback,https://claude.com/api/mcp/auth_callback,https://chatgpt.com/connector_platform_oauth_redirect
+# Lifetimes in seconds: an access key, and how long a refresh token may sit unused. Each refresh
+# issues a new pair, but a grant ends 90 days after consent regardless. A value below 60, or not
+# a whole number, falls back to the default.
+oauth.accessTokenTtl = 3600
+oauth.refreshTokenTtl = 2592000
 
 # Vertex AI (Gemini) for workflow steps, called on the `eu` multi-region endpoint
 # (`aiplatform.eu.rep.googleapis.com`), which keeps requests inside the EU. A 404 reported as
@@ -168,7 +176,7 @@ Claude Desktop and claude.ai render the results of `workflow_list`, `run_list`, 
 
 ### Authentication
 
-Each user authenticates with a personal key, sent as `Authorization: Bearer grieg_…`, and every tool runs as that key's owner: the owner's own permissions apply, and Content Studio records the owner as the modifier, so an agent's edits cannot be told apart from the owner's own. Revoking one key affects nobody else.
+Each user authenticates with a personal key, sent as `Authorization: Bearer grieg_…`, or with a key a connector got through [OAuth sign-in](#oauth-sign-in), and every tool runs as that key's owner: the owner's own permissions apply, and Content Studio records the owner as the modifier, so an agent's edits cannot be told apart from the owner's own. Revoking one key affects nobody else.
 
 On startup grieg creates the role `role:com.enonic.app.grieg.mcp`. A key is admitted only while its owner holds that role, directly or through a group, and is enabled. Both are checked on every request, so removing someone from the role or disabling them stops their key at once. A key expires 90 days after it was generated. The owner can be in any ID provider; XP builds their roles from stored memberships, which for an external ID provider are as fresh as that user's last interactive login. Roles live in `system-repo`, so the role stays after the app is uninstalled; delete it in the Users app if it is no longer wanted.
 
@@ -263,7 +271,7 @@ For a static token, the third-party `mcp-remote` (`npx mcp-remote <url> --header
 
 ### ChatGPT
 
-ChatGPT cannot use a personal key yet. Its form for a custom MCP server offers OAuth, no authentication, or a mix of the two, and has no field for a header, while grieg does not offer OAuth sign-in yet. The ChatGPT tab of the MCP tab's connect step says so, and shows the endpoint and the steps to add a server: on chatgpt.com, Plugins, the plus button, Add custom MCP server; a name, the server URL or a tunnel under Connection, the authentication; confirm the risk warning and select Create as a plugin; then type `@` in a chat and pick grieg. Which ChatGPT plans can add a custom server has not been verified: OpenAI's guide names none, and says workspace permissions apply.
+ChatGPT cannot use a personal key. Its form for a custom MCP server offers OAuth, no authentication, or a mix of the two, and has no field for a header. grieg signs connectors in through [OAuth](#oauth-sign-in), but ChatGPT gets its client id only through dynamic client registration or a client ID metadata document, and grieg offers neither yet, so ChatGPT cannot complete the sign-in either. The ChatGPT tab of the MCP tab's connect step says so, and shows the endpoint and the steps to add a server: on chatgpt.com, Plugins, the plus button, Add custom MCP server; a name, the server URL or a tunnel under Connection, the authentication; confirm the risk warning and select Create as a plugin; then type `@` in a chat and pick grieg. Which ChatGPT plans can add a custom server has not been verified: OpenAI's guide names none, and says workspace permissions apply.
 
 Every tool declares `readOnlyHint`, `destructiveHint` and `openWorldHint`, which ChatGPT lists as required and uses to frame its confirmation; it treats a tool without `readOnlyHint` as a write. `content_update` and `cron_delete` are marked destructive, and `workflow_run`, which calls Vertex AI, open-world.
 
@@ -300,19 +308,24 @@ OpenAI's documentation does not say whether `tunnel-client` passes its own envir
 
 Through the tunnel, the forwarder makes the requests, so grieg sees neither an `Origin` nor a cookie, as from any stdio client. Whether ChatGPT's own servers send either when they call an endpoint directly has not been checked. If they send `Origin: https://chatgpt.com`, grieg refuses it as not same-origin, logging the value, until `https://chatgpt.com` is added to `mcp.allowedOrigins`. A request with a cookie is refused whatever the configuration.
 
-### OAuth discovery
+### OAuth sign-in
 
-ChatGPT, and Claude's custom connectors, find out how to sign in from the endpoint's 401 ([MCP authorization](https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization), RFC 9728). grieg publishes that discovery only while `oauth.enabled = true` and only once it serves its own authorization and token endpoints, which it does not yet. Until both hold, the 401 is a bare `Bearer` challenge, as before, and the OAuth API (`/api/com.enonic.app.grieg:oauth`) answers 404, so no document ever names an endpoint grieg does not serve.
+Claude's custom connectors, and ChatGPT once grieg registers clients, sign in through OAuth 2.1 as the [MCP authorization spec](https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization) describes it: grieg is the authorization server, and what it issues are grieg keys, so the endpoint admits them exactly as it admits a personal key. While `oauth.enabled` is off, the 401 is a bare `Bearer` challenge and the OAuth API (`/api/com.enonic.app.grieg:oauth`) answers 404.
 
-Once both hold:
+With it on:
 
-- The 401 carries `WWW-Authenticate: Bearer resource_metadata="<origin>/.well-known/oauth-protected-resource/api/com.enonic.app.grieg:mcp"`.
-- That URL serves the protected resource metadata: `resource` is `<origin>/api/com.enonic.app.grieg:mcp`, and `authorization_servers` names grieg's issuer, `<origin>/api/com.enonic.app.grieg:oauth`.
-- `/.well-known/oauth-authorization-server/api/com.enonic.app.grieg:oauth` serves the authorization server metadata (RFC 8414): the authorization and token endpoints under the issuer, the registration endpoint once there is one, the `code` response type, the `authorization_code` and `refresh_token` grants, and S256 PKCE.
+1. The endpoint's 401 carries `WWW-Authenticate: Bearer resource_metadata="<origin>/.well-known/oauth-protected-resource/api/com.enonic.app.grieg:mcp"`. That URL serves the protected resource metadata (RFC 9728): `resource` is `<origin>/api/com.enonic.app.grieg:mcp`, and `authorization_servers` names grieg's issuer, `<origin>/api/com.enonic.app.grieg:oauth`.
+2. `/.well-known/oauth-authorization-server/api/com.enonic.app.grieg:oauth` serves the authorization server metadata (RFC 8414): the authorization and token endpoints under the issuer, the `code` response type, the `authorization_code` and `refresh_token` grants, S256 PKCE, public clients only (`none`), the `offline_access` scope, and `iss` in the authorization response (RFC 9207).
+3. The client sends the user to `<issuer>/authorize`. A user who is not signed in gets XP's login page for the vhost's ID provider, which returns to the same URL. Only a user who holds `role:com.enonic.app.grieg.mcp` sees the consent page, which names the client, this server, the user and where the browser returns to; anyone else gets a page that names the missing role. Approving sends the browser back to the client with a code that is valid for one minute and only once.
+4. The client exchanges the code at `<issuer>/token` with its PKCE verifier for an access key (`grieg_…`, one hour) and a refresh token. Each refresh rotates both. The access key it replaces keeps working until it expires or until the next refresh, so requests already in flight do not fail.
 
-The URLs are built from the request as XP resolves it, `X-Forwarded-*` included, so the origin must be the one clients connect to, on one stable host. `resource` is always that origin plus `/api/com.enonic.app.grieg:mcp`, and a client refuses metadata whose `resource` differs from the URL it connected to, so expose the endpoint at that path and not under another one. The documents are sent with `Cache-Control: no-store`.
+A grant belongs to the user who approved it and to the client id the client sent, and ends 90 days after consent, after `oauth.refreshTokenTtl` without a refresh, or when it is revoked. A user cannot revoke a single grant yet: the MCP tab's list of grants with revoke comes next, and until then removing someone from the role, or disabling them, stops all of their connectors. Every code exchange, every refresh and every MCP request checks the user as for a personal key: removing someone from the role or disabling them stops their connectors at once, and their next refresh revokes the grant. A code used twice revokes its grant, and so does any refresh token of a grant other than its current one, since only a stolen copy would be used that way. The one exception is the refresh token just replaced, within 30 seconds of its rotation: it is refused without revoking, since that is the client's own concurrent refresh. grieg's store has no atomic update, so two refreshes that land at the same instant can both succeed; the next use of the token that lost then revokes the grant as if it were stolen, and the client has to sign in again. A user keeps up to 20 grants, and the oldest goes when a 21st is approved. Granting and revoking are written to the audit log (`grieg.oauth.grant`, `grieg.oauth.revoke`). Codes, keys and refresh tokens are stored only as SHA-256 digests under `/mcp/oauth` in grieg's repository, admin-only, and expired ones are removed at startup and at each consent. Turning `oauth.enabled` off stops every OAuth key at once; the grants stay, and work again if it is turned back on before they end.
 
-XP needs vhosts for this, in `$XP_HOME/config/com.enonic.xp.web.vhost.cfg`, for two reasons. On a mapping with a default ID provider, and with vhosts off, XP replaces the endpoint's 401 with its login page and drops `WWW-Authenticate`; a mapping with no ID provider keeps both. And the root `/.well-known/*` reaches an app's API only through a mapping. Map the endpoint, `/.well-known` and the token endpoint without an ID provider, and keep the catch-all for everything else, with your own host instead of `localhost`. The token endpoint is not served yet; its mapping is here so the configuration need not change when it is, since a client's failed token request also gets a 401 that a mapping with an ID provider would turn into the login page.
+grieg does not register clients yet. A client sends any `client_id` it likes, which grieg shows on the consent page as the client reports it and binds to the grant; what admits a client is its redirect URI, which must be one of `oauth.redirectUris` exactly. In Claude, add a custom connector with the endpoint URL, and under its advanced settings enter an OAuth client ID of your choosing, such as `claude`, and no secret. Because Claude's and ChatGPT's callbacks are shared by all their users, the consent page cannot tell whose Claude or ChatGPT account a request comes from, so it warns the user to approve only a connection they started themselves.
+
+The consent page is cookie-authenticated, unlike the MCP endpoint, so its approval must come from the same origin: grieg refuses a POST whose `Origin` is another origin, or which has neither `Origin` nor `Sec-Fetch-Site: same-origin`, and validates the request again before it issues a code. The page cannot be framed and is not cached.
+
+XP needs vhosts for this, in `$XP_HOME/config/com.enonic.xp.web.vhost.cfg`. On a mapping with a default ID provider, and with vhosts off, XP replaces a 401 with its login page and drops `WWW-Authenticate`; a mapping with no ID provider keeps both. The MCP endpoint and the token endpoint must therefore be mapped without an ID provider, and `/authorize` must be under one, since its login is the ID provider's. The root `/.well-known/*` reaches an app's API only through a mapping. Map these with your own host instead of `localhost`:
 
 ```properties
 enabled = true
@@ -335,9 +348,9 @@ mapping.root.target = /
 mapping.root.idProvider.system = default
 ```
 
-The `wk` mapping hands every `/.well-known/*` path on that host to grieg, which answers 404 for any document but its own. The OAuth API also serves the same documents under its own path, `/api/com.enonic.app.grieg:oauth/well-known/<document>/<path>`, which is useful for checking it without the mapping; clients look only at the root. XP answers `OPTIONS` itself without CORS headers, so a browser-based client cannot read the documents; ChatGPT and Claude fetch them from their servers.
+The URLs are built from the request as XP resolves it, `X-Forwarded-*` included, so the origin must be the one clients connect to, on one stable host. `resource` is always that origin plus `/api/com.enonic.app.grieg:mcp`, and a client refuses metadata whose `resource` differs from the URL it connected to, so expose the endpoint at that path and not under another one. The documents and token responses are sent with `Cache-Control: no-store`.
 
-Until grieg serves sign-in, the mapping can be checked by its 404 alone: grieg answers with a JSON body (`"code":"NOT_FOUND"`), and a 404 without it never reached grieg.
+The `wk` mapping hands every `/.well-known/*` path on that host to grieg, which answers 404 for any document but its own. The OAuth API also serves the same documents under its own path, `/api/com.enonic.app.grieg:oauth/well-known/<document>/<path>`, which is useful for checking it without the mapping; clients look only at the root. XP answers `OPTIONS` itself without CORS headers, so a browser-based client cannot call these endpoints; ChatGPT and Claude call them from their servers.
 
 ```bash
 curl -si -X POST http://localhost:8080/api/com.enonic.app.grieg:mcp | grep -i www-authenticate
@@ -346,7 +359,9 @@ curl -s http://localhost:8080/.well-known/oauth-protected-resource/api/com.enoni
 
 ### Troubleshooting
 
-A rejected bearer gets `401`, but XP replaces the body with its login page, so the reason is only in the XP log as a `MCP request … rejected` warning. For a personal key it is one of: unknown key (never generated, regenerated or deleted), expired, owner no longer exists, owner disabled, or owner does not hold `role:com.enonic.app.grieg.mcp`; the warning names the owner, never the key. For any other bearer it is a missing or invalid token, or shared-token mode being off. The same applies to a disallowed `Origin` or `Host` and to a request carrying cookies: the endpoint answers 403, but XP turns a 403 for an anonymous caller into its 401 login challenge. An `Origin` or `Host` warning names the rejected value and the config key that would admit it. A cookie warning lists the cookie names, never their values, and a bearer warning says only whether the token was missing or invalid.
+A rejected bearer gets `401`, but XP replaces the body with its login page, so the reason is only in the XP log as a `MCP request … rejected` warning. For a personal key it is one of: unknown key (never generated, regenerated or deleted), expired, owner no longer exists, owner disabled, or owner does not hold `role:com.enonic.app.grieg.mcp`; the warning names the owner, never the key. For any other bearer it is a missing or invalid token, or shared-token mode being off. The same applies to a disallowed `Origin` or `Host` and to a request carrying cookies: the endpoint answers 403, but XP turns a 403 for an anonymous caller into its 401 login challenge. An `Origin` or `Host` warning names the rejected value and the config key that would admit it. A cookie warning lists the cookie names, never their values, and a bearer warning says only whether the token was missing or invalid. For a key from OAuth sign-in it is one of: the key expired, its grant ended or was revoked, or its owner fails the same checks as a personal key's.
+
+The token endpoint answers a refused code or refresh token with `invalid_grant` and a short description; a revocation for a replayed code or a reused refresh token is also logged as a warning that names the owner and the client id. A refused consent `POST` is logged with its `Origin`.
 
 ```bash
 curl -sX POST http://localhost:8080/api/com.enonic.app.grieg:mcp \

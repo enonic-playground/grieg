@@ -1,7 +1,8 @@
 kind: 'API'
 title: 'OAuth API'
-description: 'OAuth discovery for MCP connectors'
-# Public by descriptor: a client reads the metadata before it holds any credential.
+description: 'OAuth sign-in for MCP connectors'
+# Public by descriptor: a client reads the metadata and calls the token endpoint without a session,
+# and the authorize handler asks for a login itself.
 allow:
   - 'role:system.everyone'
 mount:

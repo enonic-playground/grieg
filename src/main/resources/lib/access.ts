@@ -50,7 +50,7 @@ export function originOf(scheme: string, host: string, port: number): string {
   return normalizeOrigin(`${scheme}://${bracketed}:${port}`) ?? '';
 }
 
-function normalizeOrigin(origin: string): string | undefined {
+export function normalizeOrigin(origin: string): string | undefined {
   const match = ORIGIN_PATTERN.exec(origin.toLowerCase());
   if (match == null) return undefined;
   const [, scheme, authority] = match;

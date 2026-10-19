@@ -1,3 +1,4 @@
+import { initGrantStore } from './lib/grants';
 import { initKeyStore } from './lib/keys';
 import { initRepo } from './lib/repo';
 import { sweepInterrupted } from './lib/runs';
@@ -6,6 +7,7 @@ import { initWorkflows } from './lib/workflows';
 
 initRepo();
 initKeyStore();
+initGrantStore();
 initWorkflows();
 sweepInterrupted();
 
