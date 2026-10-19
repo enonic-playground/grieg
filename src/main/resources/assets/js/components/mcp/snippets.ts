@@ -43,6 +43,18 @@ export function buildClaudeCommand(mcpUri: string): string {
   ].join('\n');
 }
 
+export function buildCodexCommand(mcpUri: string): string {
+  return `codex mcp add grieg --url "${shellUrl(mcpUri)}" --bearer-token-env-var ${TOKEN_ENV}`;
+}
+
+export function buildCodexToml(mcpUri: string): string {
+  return [
+    '[mcp_servers.grieg]',
+    `url = "${shellUrl(mcpUri)}"`,
+    `bearer_token_env_var = "${TOKEN_ENV}"`,
+  ].join('\n');
+}
+
 export function buildMcpJson(mcpUri: string): string {
   return json({
     mcpServers: {
@@ -63,6 +75,14 @@ export function buildDesktopConfig(mcpUri: string, key: string): string {
   return json({
     mcpServers: {
       grieg: { command: 'npx', args, env: { AUTH_HEADER: `Bearer ${key}` } },
+    },
+  });
+}
+
+export function buildCursorConfig(mcpUri: string): string {
+  return json({
+    mcpServers: {
+      grieg: { url: mcpUri, headers: { Authorization: `Bearer \${env:${TOKEN_ENV}}` } },
     },
   });
 }
@@ -101,5 +121,33 @@ export function buildCurlCheck(mcpUri: string): string {
     `  -H "Authorization: Bearer $${TOKEN_ENV}" \\`,
     `  -H 'Content-Type: application/json' \\`,
     `  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'`,
+  ].join('\n');
+}
+
+// Pasted into an agent that writes its own config. It names the variable, never the key.
+export function buildAgentPrompt(mcpUri: string): string {
+  const url = shellUrl(mcpUri);
+  return [
+    'Connect yourself to the grieg MCP server, then guide me through any step you cannot do.',
+    '',
+    '- Name: `grieg`',
+    `- URL: \`${url}\``,
+    '- Transport: Streamable HTTP (JSON-RPC over HTTP POST), not stdio or SSE.',
+    `- Authentication: header \`Authorization: Bearer <key>\`, where the key starts with \`grieg_\` and is in the environment variable \`${TOKEN_ENV}\`.`,
+    '',
+    'Rules:',
+    `1. Never ask me for the key, and never print, echo, log or write its value anywhere. Refer to it only through \`${TOKEN_ENV}\`, using your own config syntax for an environment variable in a header or a bearer token. Check your documentation for that syntax rather than guessing.`,
+    '2. If your configuration can only hold a literal header value, stop and tell me; do not write the key into a file.',
+    '3. Turn off any automatic OAuth sign-in for this server (for example `"oauth": false`). This server is used with the bearer key, and its OAuth sign-in, where enabled, does not accept local callbacks.',
+    '',
+    'Steps:',
+    '1. Add the server to your MCP configuration and show me the entry you wrote.',
+    `2. Tell me to set the key in the shell I start you from, with \`${buildReadToken()}\` (paste the key, press Enter), and then to restart you from that shell.`,
+    "3. After the restart, list grieg's tools. Expect names such as `content_search` or `node_query`; which ones depends on the server's toolsets and my role.",
+    '4. If it fails with 401, or an HTML login page: the key is missing from your environment, wrong, expired, or its owner lacks the grieg MCP role. The server does not say which; the reason is only in the XP log, as a `MCP request … rejected` warning. You can check the endpoint with:',
+    '',
+    '```bash',
+    buildCurlCheck(mcpUri),
+    '```',
   ].join('\n');
 }

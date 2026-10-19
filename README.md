@@ -181,7 +181,7 @@ Each user authenticates with a personal key, sent as `Authorization: Bearer grie
 
 On startup grieg creates the role `role:com.enonic.app.grieg.mcp`. A key is admitted only while its owner holds that role, directly or through a group, and is enabled. Both are checked on every request, so removing someone from the role or disabling them stops their key at once. A key expires 90 days after it was generated. The owner can be in any ID provider; XP builds their roles from stored memberships, which for an external ID provider are as fresh as that user's last interactive login. Roles live in `system-repo`, so the role stays after the app is uninstalled; delete it in the Users app if it is no longer wanted.
 
-Each role member manages their own key in the admin tool's MCP tab, a three-step connect page: get a key, which is shown once and afterwards only as its masked form, expiry and last use; copy what the chosen client needs (Claude Desktop, Claude Code, ChatGPT, or other clients); and watch the first request arrive. Right after a key is generated the page checks it every 3 seconds for five minutes, while the page is visible, and turns to "Connected" on the key's first use; a key's first use is recorded at once, later uses at most hourly. The tab also states the toolsets the server serves, whether it is read-only, and whether the workflow tools are served to you. Admins also see and revoke every user's key there. A member who is not an admin sees only that tab. The tab uses the Keys API, which works with the XP login session that the admin tool runs in: `GET` returns the key's masked form and dates, `POST` with a JSON body generates a key, replacing the previous one, and returns the full key once, and `DELETE` removes it. An admin needs the role too to hold a key, and can also list every key (`GET ?all=true`) and revoke anyone's (`DELETE ?owner=user:<idprovider>:<login>`). A bearer that is not a `grieg_` key is compared with the deprecated shared `mcp.token` and runs as `mcp.user`, when both are set. The examples below use a personal key; a shared token goes in the same place.
+Each role member manages their own key in the admin tool's MCP tab, a three-step connect page: get a key, which is shown once and afterwards only as its masked form, expiry and last use; copy what the chosen client needs (Claude Desktop, Claude Code, Codex, ChatGPT, or other clients, which start with a setup prompt for any agent); and watch the first request arrive. Right after a key is generated the page checks it every 3 seconds for five minutes, while the page is visible, and turns to "Connected" on the key's first use; a key's first use is recorded at once, later uses at most hourly. The tab also states the toolsets the server serves, whether it is read-only, and whether the workflow tools are served to you. Admins also see and revoke every user's key there. A member who is not an admin sees only that tab. The tab uses the Keys API, which works with the XP login session that the admin tool runs in: `GET` returns the key's masked form and dates, `POST` with a JSON body generates a key, replacing the previous one, and returns the full key once, and `DELETE` removes it. An admin needs the role too to hold a key, and can also list every key (`GET ?all=true`) and revoke anyone's (`DELETE ?owner=user:<idprovider>:<login>`). A bearer that is not a `grieg_` key is compared with the deprecated shared `mcp.token` and runs as `mcp.user`, when both are set. The examples below use a personal key; a shared token goes in the same place.
 
 ### Claude Desktop
 
@@ -234,6 +234,32 @@ Or share it through `.mcp.json`, with each user's key in their own environment. 
 ```
 
 Tool names are `mcp__grieg__content_search` and so on, which is what permission allowlists match.
+
+### Codex
+
+Codex speaks Streamable HTTP and reads the bearer from an environment variable each time it starts, so its config holds only the variable's name. Export the variable in every shell you start Codex from:
+
+```bash
+read -rs GRIEG_MCP_TOKEN && export GRIEG_MCP_TOKEN   # paste the key, press Enter
+codex mcp add grieg --url "http://localhost:8080/api/com.enonic.app.grieg:mcp" --bearer-token-env-var GRIEG_MCP_TOKEN
+codex mcp list   # grieg, with Bearer token auth
+```
+
+Or add the same entry to `~/.codex/config.toml`:
+
+```toml
+[mcp_servers.grieg]
+url = "http://localhost:8080/api/com.enonic.app.grieg:mcp"
+bearer_token_env_var = "GRIEG_MCP_TOKEN"
+```
+
+Keep `--bearer-token-env-var`: without it, Codex sends no key. With `oauth.enabled` on, `codex mcp add` then finds grieg's [OAuth](#oauth-sign-in) metadata and opens a browser sign-in, which grieg refuses: `oauth.redirectUris` is matched exactly and admits only Claude's and ChatGPT's callbacks by default.
+
+### Other agents
+
+For an agent with no tab of its own, such as OpenCode or Pi, the Other clients tab opens on a setup prompt to paste into the agent. It carries the endpoint URL, never the key, and asks the agent to add grieg over Streamable HTTP with the bearer taken from `GRIEG_MCP_TOKEN` in its own config syntax, to turn off automatic OAuth sign-in (OpenCode starts it on any 401 unless the entry sets `"oauth": false`), to have you set the variable with `read -rs` and restart it, and to list grieg's tools. Whether the agent then keeps the key out of its files depends on it following the prompt; the prompt has not been tried against each agent.
+
+The same tab gives Cursor an entry that reads the key through `${env:GRIEG_MCP_TOKEN}`, which needs the variable in the environment Cursor starts from, and plain-text entries for other clients that take a URL with headers, VS Code, and the stdio forwarder.
 
 ### Stdio clients
 
