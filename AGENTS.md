@@ -184,9 +184,12 @@ server's tools in `src/test/apis/mcp.test.ts`, so a new tool goes into both.
     silently resolves that user to anonymous.
   - The content tools default to `mcp.project`. A `project` argument is first checked with
     lib-project `get()` as the acting user, which throws for a project the user holds no role
-    in. `content_localize` has no XP call of its own: lib-content `update()` drops the `CONTENT`
-    and `NAME` inherit flags whenever it changes something, which is Content Studio's "Localize"
-    too, so a no-op call would leave the item inherited and is refused. It writes to draft only.
+    in. The configured project is not looked up, since that throws for a user who reads its
+    content without a project role; `inProject` maps XP's `repositoryNotFound` error to the same
+    `noProject()` message instead. `content_localize` has no XP call of its own: lib-content
+    `update()` drops the `CONTENT` and `NAME` inherit flags whenever it changes something, which
+    is Content Studio's "Localize" too, so a no-op call would leave the item inherited and is
+    refused. It writes to draft only.
     lib-content `resetInheritance()` checks no caller access, so it is never exposed.
   - The workflow tools (`lib/workflow-tools.ts`) share `lib/crons.ts` and `lib/run-start.ts`
     with `apis/crons` and `apis/workflows`, so REST and MCP follow one set of rules. They are

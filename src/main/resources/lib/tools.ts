@@ -82,9 +82,19 @@ function noProject(config: ToolsConfig, project: string): ToolOutcome {
   );
 }
 
+// XP's RepositoryNotFoundException, as a host object caught in GraalJS.
+function isRepositoryNotFound(e: unknown): boolean {
+  try {
+    return (e as { getCode(): string }).getCode() === 'repositoryNotFound';
+  } catch {
+    return false;
+  }
+}
+
 // Runs in the requested project, or the configured one. Another requested project is checked
 // first, so a name the user holds no role in fails with a clear message rather than an empty
-// result; naming the configured project behaves as leaving it out.
+// result. The configured project is not looked up, because lib-project refuses a user without
+// a project role who may still read its content; a missing one is caught from the repository.
 function inProject(
   config: ToolsConfig,
   requested: string | undefined,
@@ -96,7 +106,12 @@ function inProject(
     if (requested != null && requested !== config.project && readableProject(requested) == null) {
       return noProject(config, requested);
     }
-    return callback(project);
+    try {
+      return callback(project);
+    } catch (e) {
+      if (isRepositoryNotFound(e)) return noProject(config, project);
+      throw e;
+    }
   });
 }
 
@@ -301,7 +316,7 @@ function draftNote(config: ToolsConfig): string {
 }
 
 function contentInstructions(config: ToolsConfig): string {
-  const head = `Content tools for Enonic XP project \`${config.project}\`, branch \`${config.branch}\`, acting as ${userKey(config)}. project_list shows the other projects you can read; pass one as \`project\`.`;
+  const head = `Content tools default to Enonic XP project \`${config.project}\`, branch \`${config.branch}\`, acting as ${userKey(config)}. project_list shows the projects you can read; pass one as \`project\`.`;
   const paths =
     'Paths look like /my-site/articles/item; the /content prefix is optional, and ids work wherever a key is accepted.';
   const find =
@@ -539,6 +554,8 @@ export function createContentTools(config: ToolsConfig, editBase: EditBase): Too
       if (!draft.ok) return fail(draft.message);
 
       return inProject(config, draft.value?.project, (project) => {
+        // A draft targets a project, so touch its repository for a missing one to fail here.
+        if (draft.value != null) contentLib.query({ count: 0 });
         const type = contentLib.getType(name);
         if (type == null) {
           return fail(
@@ -594,8 +611,15 @@ export function createContentTools(config: ToolsConfig, editBase: EditBase): Too
     handler: (args) => {
       const parsed = parseCreateArgs(args);
       if (!parsed.ok) return fail(parsed.message);
-      const { project: requested, parentPath, contentType, displayName, name, language, data } =
-        parsed.value;
+      const {
+        project: requested,
+        parentPath,
+        contentType,
+        displayName,
+        name,
+        language,
+        data,
+      } = parsed.value;
 
       return inProject(
         config,
@@ -630,6 +654,7 @@ export function createContentTools(config: ToolsConfig, editBase: EditBase): Too
               workflow: { state: 'IN_PROGRESS' },
             });
           } catch (e) {
+            if (isRepositoryNotFound(e)) throw e;
             return fail(createRefusal(contentType, errorMessage(e)));
           }
           auditWrite(
