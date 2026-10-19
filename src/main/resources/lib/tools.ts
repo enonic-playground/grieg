@@ -82,8 +82,9 @@ function noProject(config: ToolsConfig, project: string): ToolOutcome {
   );
 }
 
-// Runs in the requested project, or the configured one. A requested project is checked first, so
-// a name the user holds no role in fails with a clear message rather than an empty result.
+// Runs in the requested project, or the configured one. Another requested project is checked
+// first, so a name the user holds no role in fails with a clear message rather than an empty
+// result; naming the configured project behaves as leaving it out.
 function inProject(
   config: ToolsConfig,
   requested: string | undefined,
@@ -92,7 +93,7 @@ function inProject(
 ): ToolOutcome {
   const project = requested ?? config.project;
   return runAs(config, { repository: contentRepo(project), branch }, () => {
-    if (requested != null && readableProject(requested) == null) {
+    if (requested != null && requested !== config.project && readableProject(requested) == null) {
       return noProject(config, requested);
     }
     return callback(project);
@@ -262,6 +263,7 @@ const DRAFT_SCHEMA = {
   description:
     'The item you propose to create, shown to the user as an editable form; same fields as content_create',
   properties: {
+    project: PROJECT_SCHEMA,
     parentPath: { type: 'string', description: 'Parent path, e.g. /my-site/articles' },
     displayName: { type: 'string' },
     data: { type: 'object', description: 'Proposed field values by name' },
@@ -488,10 +490,12 @@ export function createContentTools(config: ToolsConfig, editBase: EditBase): Too
     title: 'Read content type',
     description:
       `List the fields of one content type, e.g. \`my.app:article\` or \`base:folder\`, as a flat list of dot paths into data with their input type, occurrences (\`max\` 0 is unlimited) and input config such as the options of a ComboBox. ` +
-      `Item sets and option sets add a level to the path; an option set's data is \`{ "_selected": ["<option>"], "<option>": {…} }\`. Nesting deeper than ${MAX_FORM_DEPTH} levels is marked \`capped\`. Call it before content_create.${
+      `Item sets and option sets add a level to the path; an option set's data is \`{ "_selected": ["<option>"], "<option>": {…} }\`. Nesting deeper than ${MAX_FORM_DEPTH} levels is marked \`capped\`. ` +
+      "Content types are the same in every project. Content Studio offers only the types of the site's applications under a site, and of the project's outside one, but neither grieg nor XP enforces that: XP checks only that the parent's type allows the child. " +
+      `Call it before content_create.${
         config.readOnly
           ? ''
-          : ' When a person is in the conversation, pass the item you propose as `draft` before content_create: their client shows it as a form, pre-filled, and they review it and send you the final `content_create` arguments. If content_create then refuses those, call this again with the same draft and the refusal text as `draft.error`, so the form marks the paths it names.'
+          : ' When a person is in the conversation, pass the item you propose as `draft` before content_create, with `project` when it goes to another project: their client shows it as a form, pre-filled, and they review it and send you the final `content_create` arguments. If content_create then refuses those, call this again with the same draft and the refusal text as `draft.error`, so the form marks the paths it names.'
       }`,
     inputSchema: {
       type: 'object',
@@ -513,7 +517,10 @@ export function createContentTools(config: ToolsConfig, editBase: EditBase): Too
         allowChildContent: { type: 'boolean' },
         form: { type: 'array', items: FORM_FIELD_SCHEMA },
         note: { type: 'string', description: 'Where the form was capped' },
-        draft: { ...DRAFT_SCHEMA, description: 'The draft passed in, for the form' },
+        draft: {
+          ...DRAFT_SCHEMA,
+          description: 'The draft passed in, for the form, with the project it targets',
+        },
       },
       required: ['name', 'displayName', 'abstract', 'allowChildContent', 'form'],
     },
@@ -531,7 +538,7 @@ export function createContentTools(config: ToolsConfig, editBase: EditBase): Too
       const draft = parseDraft(args.draft);
       if (!draft.ok) return fail(draft.message);
 
-      return inProject(config, undefined, () => {
+      return inProject(config, draft.value?.project, (project) => {
         const type = contentLib.getType(name);
         if (type == null) {
           return fail(
@@ -550,7 +557,7 @@ export function createContentTools(config: ToolsConfig, editBase: EditBase): Too
           ...(capped.length > 0 && {
             note: `Fields nested deeper than ${MAX_FORM_DEPTH} levels are not listed under: ${capped.join(', ')}. Read an existing item of this type with content_get to see their shape.`,
           }),
-          ...(draft.value != null && { draft: draft.value }),
+          ...(draft.value != null && { draft: { ...draft.value, project } }),
         });
       });
     },
@@ -560,12 +567,13 @@ export function createContentTools(config: ToolsConfig, editBase: EditBase): Too
     name: 'content_create',
     title: 'Create content',
     description:
-      `Create one content item under \`parentPath\` in project \`${config.project}\`, always on the draft branch with workflow state in-progress, so it goes live only when someone publishes it in Content Studio. ` +
+      `Create one content item under \`parentPath\` in project \`${config.project}\`, or in another \`project\` you can read, always on the draft branch with workflow state in-progress, so it goes live only when someone publishes it in Content Studio. ` +
       '`data` must be valid for `contentType`: call content_type_get first. An item set is an object, or an array of objects for several; leave out a field rather than setting it to null. ' +
       'A refusal names the offending paths: fix them and retry. Without `name`, XP derives one from `displayName`.',
     inputSchema: {
       type: 'object',
       properties: {
+        project: PROJECT_SCHEMA,
         parentPath: { type: 'string', description: 'Parent path, e.g. / or /my-site/articles' },
         contentType: { type: 'string', description: 'e.g. base:folder or my.app:article' },
         displayName: { type: 'string' },
@@ -586,11 +594,12 @@ export function createContentTools(config: ToolsConfig, editBase: EditBase): Too
     handler: (args) => {
       const parsed = parseCreateArgs(args);
       if (!parsed.ok) return fail(parsed.message);
-      const { parentPath, contentType, displayName, name, language, data } = parsed.value;
+      const { project: requested, parentPath, contentType, displayName, name, language, data } =
+        parsed.value;
 
       return inProject(
         config,
-        undefined,
+        requested,
         (project) => {
           const type = contentLib.getType(contentType);
           if (type == null) {

@@ -1001,10 +1001,11 @@ const FORM_TYPE: ContentType = {
   ],
 };
 
-function draftOf(data: JsonObject, error?: string): ContentType {
+function draftOf(data: JsonObject, error?: string, project?: string): ContentType {
   return {
     ...FORM_TYPE,
     draft: {
+      ...(project != null && { project }),
       parentPath: '/site/articles',
       displayName: 'Cold brew',
       data,
@@ -1075,6 +1076,20 @@ describe('content form card', () => {
     expect(
       screen.getByText('Asked Claude. Approve the tool call to go ahead.'),
     ).toBeInTheDocument();
+  });
+
+  it('should show the target project and create there', async () => {
+    const { host, user } = renderCard(draftOf(PROPOSED, undefined, 'norway'));
+
+    expect(screen.getByLabelText('Location')).toHaveAccessibleDescription('in project norway');
+    await user.click(screen.getByRole('button', { name: 'Create' }));
+
+    expect(host.share).toHaveBeenCalledWith(expect.any(String), {
+      content_create: expect.objectContaining({ project: 'norway', parentPath: '/site/articles' }),
+    });
+    expect(host.ask).toHaveBeenCalledWith(
+      expect.stringContaining('under /site/articles in project norway with content_create'),
+    );
   });
 
   it('should put the arguments in the message when the host takes no model context', async () => {

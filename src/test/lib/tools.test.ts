@@ -506,6 +506,12 @@ describe('content_type_get', () => {
     );
   });
 
+  it('should say that types do not depend on the project', () => {
+    expect(tool('content_type_get').description).toContain(
+      'Content types are the same in every project.',
+    );
+  });
+
   it('should require a name', () => {
     expect(message(tool('content_type_get').handler({}))).toContain('`name` is required');
     expect(run).not.toHaveBeenCalled();
@@ -527,6 +533,7 @@ describe('content_type_get', () => {
     );
 
     expect(result.draft).toEqual({
+      project: 'default',
       parentPath: '/site',
       displayName: 'News',
       data: { title: 'News' },
@@ -541,6 +548,7 @@ describe('content_type_get', () => {
     [{ parentPath: '/', data: [] }, '`draft.data` must be an object'],
     [{ parentPath: '/', data: { title: null } }, '`draft.data.title`'],
     [{ parentPath: '/', language: 'en' }, 'Unknown `draft` key(s): language'],
+    [{ parentPath: '/', project: '../x' }, '`draft.project` must be a project name'],
   ])('should refuse the draft %j', (draft, expected) => {
     expect(message(tool('content_type_get').handler({ name: 'my.app:article', draft }))).toContain(
       expected,
@@ -845,6 +853,119 @@ describe('projects', () => {
       expect(description).toContain('project `default`, branch `draft`');
       expect(description).not.toContain('=>');
     }
+  });
+
+  it('should advertise `project` on content_create', () => {
+    expect(tool('content_create').inputSchema.properties).toHaveProperty('project');
+  });
+
+  it('should create in another project the user can read, and audit it there', () => {
+    getType.mockReturnValue(ARTICLE);
+    create.mockReturnValue(item({ _id: 'new' }));
+
+    const result = value(
+      tool('content_create').handler({
+        project: 'norway',
+        parentPath: '/site',
+        contentType: 'my.app:article',
+        displayName: 'Nyhet',
+        data: { title: 'Nyhet' },
+      }),
+    );
+
+    expect(getProject).toHaveBeenCalledWith({ id: 'norway' });
+    expect(run).toHaveBeenCalledWith(
+      expect.objectContaining({ repository: 'com.enonic.cms.norway', branch: 'draft' }),
+      expect.any(Function),
+    );
+    expect(create).toHaveBeenCalledWith(expect.not.objectContaining({ project: 'norway' }));
+    expect(auditLog).toHaveBeenCalledWith(
+      expect.objectContaining({ objects: ['com.enonic.cms.norway:draft:new'] }),
+    );
+    expect(result).toMatchObject({
+      project: 'norway',
+      editUrl: 'http://localhost:8080/admin/cs/main/norway/edit/new',
+    });
+  });
+
+  it('should refuse to create in a project the user holds no role in', () => {
+    getProject.mockImplementation(() => {
+      throw new Error('Denied [get] access to project [secret]');
+    });
+
+    const outcome = tool('content_create').handler({
+      project: 'secret',
+      parentPath: '/',
+      contentType: 'base:folder',
+      displayName: 'X',
+    });
+
+    expect(message(outcome)).toContain('No project `secret` that user:system:editor can read');
+    expect(getType).not.toHaveBeenCalled();
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it("should hand a draft back in the project it targets, checked like the other tools", () => {
+    getType.mockReturnValue(ARTICLE);
+
+    const result = value(
+      tool('content_type_get').handler({
+        name: 'my.app:article',
+        draft: { project: 'norway', parentPath: '/site', data: {} },
+      }),
+    );
+
+    expect(getProject).toHaveBeenCalledWith({ id: 'norway' });
+    expect(run).toHaveBeenCalledWith(
+      expect.objectContaining({ repository: 'com.enonic.cms.norway' }),
+      expect.any(Function),
+    );
+    expect(result.draft).toMatchObject({ project: 'norway', parentPath: '/site' });
+  });
+
+  it('should create from a card draft in the configured project without a project lookup', () => {
+    getType.mockReturnValue(ARTICLE);
+    create.mockReturnValue(item({ _id: 'new' }));
+
+    value(
+      tool('content_create').handler({
+        project: 'default',
+        parentPath: '/site',
+        contentType: 'my.app:article',
+        displayName: 'News',
+        data: { title: 'News' },
+      }),
+    );
+
+    expect(getProject).not.toHaveBeenCalled();
+    expect(create).toHaveBeenCalled();
+  });
+
+  it('should keep the project of a draft handed back with a refusal', () => {
+    getType.mockReturnValue(ARTICLE);
+
+    const result = value(
+      tool('content_type_get').handler({
+        name: 'my.app:article',
+        draft: { project: 'norway', parentPath: '/site', error: 'No content type' },
+      }),
+    );
+
+    expect(result.draft).toMatchObject({ project: 'norway', error: 'No content type' });
+  });
+
+  it('should refuse a draft for a project the user holds no role in', () => {
+    getProject.mockImplementation(() => {
+      throw new Error('Denied [get] access to project [secret]');
+    });
+
+    const outcome = tool('content_type_get').handler({
+      name: 'my.app:article',
+      draft: { project: 'secret', parentPath: '/' },
+    });
+
+    expect(message(outcome)).toContain('No project `secret`');
+    expect(getType).not.toHaveBeenCalled();
   });
 
   it('should audit an update in another project under that repository', () => {

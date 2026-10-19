@@ -268,7 +268,8 @@ const READ_TOOLS: Record<string, (args: Json) => ToolResult> = {
     if (type == null) return fail(`No content type \`${String(name)}\`.`);
     const parsed = parseDraft(draft);
     if (!parsed.ok) return fail(parsed.message);
-    return ok(parsed.value == null ? type : { ...type, draft: parsed.value });
+    if (parsed.value == null) return ok(type);
+    return ok({ ...type, draft: { ...parsed.value, project: parsed.value.project ?? 'default' } });
   },
 };
 

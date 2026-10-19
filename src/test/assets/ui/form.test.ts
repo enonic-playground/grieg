@@ -295,4 +295,11 @@ describe('create request', () => {
     expect(inline).toContain('```json');
     expect(JSON.parse(inline.split('```json\n')[1].split('\n```')[0])).toEqual(args);
   });
+
+  it('should name the project it creates in', () => {
+    const args = createArguments(TYPE, header, {}, 'norway');
+
+    expect(args).toMatchObject({ project: 'norway', parentPath: '/site' });
+    expect(createMessage(TYPE, args, true)).toContain('under /site in project norway with');
+  });
 });

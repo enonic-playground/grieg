@@ -399,25 +399,38 @@ type HeaderFieldProps = {
   value: string;
   problems?: string[];
   mono?: boolean;
+  aside?: ReactNode;
   onChange: (value: string) => void;
 };
 
-const HeaderField = ({ id, label, value, problems, mono, onChange }: HeaderFieldProps) => (
-  <div>
-    <label htmlFor={id} className="font-medium">
-      {label}
-    </label>
-    <input
-      id={id}
-      className={cn(inputClasses, 'mt-1', mono && 'font-mono')}
-      value={value}
-      aria-invalid={problems != null || undefined}
-      aria-describedby={problems == null ? undefined : `${id}-problems`}
-      onChange={(event) => onChange(event.target.value)}
-    />
-    <ProblemList id={`${id}-problems`} messages={problems} />
-  </div>
-);
+const HeaderField = ({ id, label, value, problems, mono, aside, onChange }: HeaderFieldProps) => {
+  const described = [aside != null && `${id}-aside`, problems != null && `${id}-problems`]
+    .filter(Boolean)
+    .join(' ');
+  return (
+    <div>
+      <div className="flex flex-wrap items-baseline justify-between gap-x-2">
+        <label htmlFor={id} className="font-medium">
+          {label}
+        </label>
+        {aside != null && (
+          <span id={`${id}-aside`} className="text-muted-foreground text-xs">
+            {aside}
+          </span>
+        )}
+      </div>
+      <input
+        id={id}
+        className={cn(inputClasses, 'mt-1', mono && 'font-mono')}
+        value={value}
+        aria-invalid={problems != null || undefined}
+        aria-describedby={described === '' ? undefined : described}
+        onChange={(event) => onChange(event.target.value)}
+      />
+      <ProblemList id={`${id}-problems`} messages={problems} />
+    </div>
+  );
+};
 
 const HEADER_KEYS = ['displayName', 'parentPath'];
 
@@ -437,7 +450,7 @@ export const ContentFormView = ({ type, draft }: ContentFormProps): ReactElement
   const [sending, setSending] = useState(false);
 
   const { data, problems: valueProblems } = buildData(nodes, values);
-  const args = createArguments(type, header, data);
+  const args = createArguments(type, header, data, draft.project);
   const live = merge(headerProblems(header), valueProblems, occurrenceProblems(type.form, data));
   // The refusal speaks about the draft as it was sent; once the user edits, the live check
   // takes over.
@@ -490,6 +503,13 @@ export const ContentFormView = ({ type, draft }: ContentFormProps): ReactElement
           value={header.parentPath}
           problems={problems.parentPath}
           mono
+          aside={
+            draft.project == null ? undefined : (
+              <>
+                in project <Mono>{draft.project}</Mono>
+              </>
+            )
+          }
           onChange={(parentPath) => changeHeader({ parentPath })}
         />
       </div>
