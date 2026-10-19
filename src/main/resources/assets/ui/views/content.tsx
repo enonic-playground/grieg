@@ -47,6 +47,14 @@ const StatePills = ({ item }: { item: ContentSummary }): ReactElement => {
   return (
     <>
       {item.language != null && <Tag>{item.language}</Tag>}
+      {item.inheritance != null && (
+        <>
+          {item.project != null && <Tag>{item.project}</Tag>}
+          <Pill tone={item.inheritance === 'localized' ? 'info' : 'muted'}>
+            {item.inheritance === 'localized' ? 'Localized' : 'Inherited'}
+          </Pill>
+        </>
+      )}
       {state != null && <Pill tone={state.tone}>{state.label}</Pill>}
       {!item.valid && <Pill tone="danger">Invalid</Pill>}
     </>
@@ -56,8 +64,14 @@ const StatePills = ({ item }: { item: ContentSummary }): ReactElement => {
 const When = ({ iso, locale }: { iso: string | null | undefined; locale: string }) =>
   iso == null ? null : <span title={dateTime(iso, locale)}>{relativeTime(iso, locale)}</span>;
 
-function childrenArgs(path: string): JsonObject {
-  return { path, count: PAGE_SIZE };
+// Follow-up reads stay in the project the item came from; without it they fall back to the
+// server's default project.
+function inProjectOf(item: Pick<ContentSummary, 'project'>, args: JsonObject): JsonObject {
+  return item.project == null ? args : { project: item.project, ...args };
+}
+
+function childrenArgs(item: Pick<ContentSummary, 'project'>, path: string): JsonObject {
+  return inProjectOf(item, { path, count: PAGE_SIZE });
 }
 
 type SearchViewProps = { data: ToolResults['content_search']; args: JsonObject };
@@ -87,7 +101,7 @@ export const ContentSearchView = ({ data, args }: SearchViewProps): ReactElement
             <Row
               key={hit.id}
               label={`Open ${hit.path}`}
-              onOpen={() => open('content_get', { key: hit.id }, title)}
+              onOpen={() => open('content_get', inProjectOf(hit, { key: hit.id }), title)}
               actions={
                 hit.hasChildren === true ? (
                   <Button
@@ -96,7 +110,7 @@ export const ContentSearchView = ({ data, args }: SearchViewProps): ReactElement
                     className="size-7"
                     aria-label={`Browse ${title}`}
                     title="Browse children"
-                    onClick={() => open('content_search', childrenArgs(hit.path), title)}
+                    onClick={() => open('content_search', childrenArgs(hit, hit.path), title)}
                   >
                     <FolderOpen />
                   </Button>
@@ -199,14 +213,14 @@ export const ContentView = ({ data }: { data: ContentDetail }): ReactElement => 
           <Meta>
             <LinkButton
               label="Browse the top level"
-              onClick={() => open('content_search', childrenArgs('/'), 'Content')}
+              onClick={() => open('content_search', childrenArgs(data, '/'), 'Content')}
             >
               /
             </LinkButton>
             {crumbs.map((crumb) => (
               <span key={crumb.path} className="inline-flex items-center gap-1.5">
                 <LinkButton
-                  onClick={() => open('content_search', childrenArgs(crumb.path), crumb.name)}
+                  onClick={() => open('content_search', childrenArgs(data, crumb.path), crumb.name)}
                 >
                   {crumb.name}
                 </LinkButton>
@@ -236,7 +250,7 @@ export const ContentView = ({ data }: { data: ContentDetail }): ReactElement => 
             variant="ghost"
             className="mt-1.5 -ml-2"
             onClick={() =>
-              open('content_search', childrenArgs(data.path), data.displayName || data.name)
+              open('content_search', childrenArgs(data, data.path), data.displayName || data.name)
             }
           >
             <FolderOpen />

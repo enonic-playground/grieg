@@ -7,11 +7,14 @@ import {
   checkOccurrences,
   createRefusal,
   flattenForm,
+  inheritanceOf,
   limitSubtree,
   MAX_COUNT,
   normalizeKey,
   parseCreateArgs,
   parseGetArgs,
+  parseLocalizeArgs,
+  parseProject,
   parseSearchArgs,
   parseUpdateArgs,
   pickSubtrees,
@@ -208,8 +211,11 @@ describe('buildSearchQuery', () => {
 
 describe('toSummary', () => {
   it('should shape a content item and link it to Content Studio', () => {
-    expect(toSummary(content({ language: undefined }), 'http://cs/default/edit', true)).toEqual({
+    expect(
+      toSummary(content({ language: undefined }), 'default', 'http://cs/default/edit', true),
+    ).toEqual({
       id: 'id-1',
+      project: 'default',
       name: 'hello',
       path: '/site/hello',
       displayName: 'Hello',
@@ -220,6 +226,7 @@ describe('toSummary', () => {
       workflowState: 'READY',
       valid: true,
       hasChildren: true,
+      inheritance: null,
       editUrl: 'http://cs/default/edit/id-1',
     });
   });
@@ -647,5 +654,67 @@ describe('createRefusal', () => {
 
   it.each([undefined, '', 'null'])('should explain a refusal without a message (%j)', (raw) => {
     expect(createRefusal('a:b', raw)).toContain('not valid for the content type');
+  });
+});
+
+describe('parseProject', () => {
+  it.each(['default', 'no-nb_2', '0'])('should accept %s', (project) => {
+    expect(parseProject({ project })).toEqual({ ok: true, value: project });
+  });
+
+  it.each(['Default', '-x', '_x', 'a.b', 'a/b', '../x'])('should reject %s', (project) => {
+    expect(parseProject({ project }).ok).toBe(false);
+  });
+
+  it('should leave a missing project undefined', () => {
+    expect(parseProject({})).toEqual({ ok: true, value: undefined });
+  });
+});
+
+describe('project-aware paging', () => {
+  it('should refuse a cursor from the same search in another project', () => {
+    const first = parseSearchArgs({ text: 'x' });
+    if (!first.ok) throw new Error(first.message);
+
+    const cursor = encodeCursor(10, first.value.fingerprint);
+    const same = parseSearchArgs({ text: 'x', cursor });
+    const other = parseSearchArgs({ project: 'norway', text: 'x', cursor });
+
+    expect(same).toMatchObject({ ok: true, value: { start: 10 } });
+    expect(other).toMatchObject({ ok: false, message: expect.stringContaining('cursor') });
+  });
+});
+
+describe('inheritanceOf', () => {
+  it.each([
+    [{ inherit: ['CONTENT', 'PARENT', 'NAME', 'SORT'], originProject: 'default' }, 'inherited'],
+    [{ inherit: ['PARENT', 'SORT'], originProject: 'default' }, 'localized'],
+    [{ originProject: 'default' }, 'localized'],
+    [{ inherit: [], originProject: 'default' }, 'localized'],
+    [{}, null],
+  ] as const)('should read %j as %s', (content, expected) => {
+    expect(inheritanceOf({ ...content, inherit: content.inherit && [...content.inherit] })).toBe(
+      expected,
+    );
+  });
+});
+
+describe('parseLocalizeArgs', () => {
+  it('should take the layer, the key and the translated fields', () => {
+    expect(parseLocalizeArgs({ project: 'norway', key: 'id-1', data: { title: 'Hei' } })).toEqual({
+      ok: true,
+      value: { project: 'norway', key: 'id-1', data: { title: 'Hei' } },
+    });
+  });
+
+  it.each([
+    [{ key: 'id-1' }, '`project` is required'],
+    [{ project: 'norway' }, '`key` is required'],
+    [{ project: 'norway', key: 'id-1', data: { items: { a: 1 } } }, 'Nested objects'],
+    [{ project: 'norway', key: 'id-1', published: true }, 'Unknown argument'],
+  ])('should reject %j', (args, message) => {
+    const parsed = parseLocalizeArgs(args);
+
+    expect(parsed.ok ? '' : parsed.message).toContain(message);
   });
 });

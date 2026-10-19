@@ -30,8 +30,11 @@ export type Subtree = (typeof SUBTREES)[number];
 
 type JsonObject = Record<string, unknown>;
 
+export type Inheritance = 'inherited' | 'localized' | null;
+
 export type Summary = {
   id: string;
+  project: string;
   name: string;
   path: string;
   displayName: string;
@@ -42,17 +45,19 @@ export type Summary = {
   workflowState: string | null;
   valid: boolean;
   hasChildren: boolean | null;
+  inheritance: Inheritance;
   editUrl: string;
 };
 
 export type SearchArgs = Page & {
+  project?: string;
   text?: string;
   path?: string;
   contentType?: string;
   count: number;
 };
 
-export type GetArgs = { key: string; fields?: string[]; include: Subtree[] };
+export type GetArgs = { project?: string; key: string; fields?: string[]; include: Subtree[] };
 
 export type CreateArgs = {
   parentPath: string;
@@ -66,6 +71,16 @@ export type CreateArgs = {
 export type DataValue = Scalar | Scalar[];
 
 export type UpdateArgs = {
+  project?: string;
+  key: string;
+  displayName?: string;
+  language?: string;
+  data?: Record<string, DataValue>;
+  expectedModifiedTime?: string;
+};
+
+export type LocalizeArgs = {
+  project: string;
   key: string;
   displayName?: string;
   language?: string;
@@ -111,10 +126,31 @@ export function optionalInteger(args: JsonObject, key: string): Parsed<number | 
   return { ok: true, value };
 }
 
+// XP's own rule for project names (`ProjectName`).
+const PROJECT_NAME = /^[a-z0-9][a-z0-9_-]*$/;
+
+export function parseProject(args: JsonObject): Parsed<string | undefined> {
+  const project = optionalString(args, 'project');
+  if (!project.ok || project.value == null || PROJECT_NAME.test(project.value)) return project;
+  return fail(
+    `\`project\` must be a project name such as \`default\`: lowercase letters, digits, \`-\` and \`_\`. List them with project_list.`,
+  );
+}
+
 export function parseSearchArgs(args: JsonObject): Parsed<SearchArgs> {
-  const unknown = unknownKeys(args, ['text', 'path', 'contentType', 'count', 'start', 'cursor']);
+  const unknown = unknownKeys(args, [
+    'project',
+    'text',
+    'path',
+    'contentType',
+    'count',
+    'start',
+    'cursor',
+  ]);
   if (unknown != null) return fail(unknown);
 
+  const project = parseProject(args);
+  if (!project.ok) return project;
   const text = optionalString(args, 'text');
   if (!text.ok) return text;
   const path = optionalString(args, 'path');
@@ -142,7 +178,13 @@ export function parseSearchArgs(args: JsonObject): Parsed<SearchArgs> {
   }
 
   const normalizedPath = path.value == null ? undefined : normalizeKey(path.value);
-  const fingerprint = queryFingerprint(['content', text.value, normalizedPath, contentType.value]);
+  const fingerprint = queryFingerprint([
+    'content',
+    project.value,
+    text.value,
+    normalizedPath,
+    contentType.value,
+  ]);
   let offset = start.value ?? 0;
   if (cursor.value != null) {
     const decoded = decodeCursor(cursor.value, fingerprint);
@@ -153,6 +195,7 @@ export function parseSearchArgs(args: JsonObject): Parsed<SearchArgs> {
   return {
     ok: true,
     value: {
+      project: project.value,
       text: text.value,
       path: normalizedPath,
       contentType: contentType.value,
@@ -164,9 +207,11 @@ export function parseSearchArgs(args: JsonObject): Parsed<SearchArgs> {
 }
 
 export function parseGetArgs(args: JsonObject): Parsed<GetArgs> {
-  const unknown = unknownKeys(args, ['key', 'fields', 'include']);
+  const unknown = unknownKeys(args, ['project', 'key', 'fields', 'include']);
   if (unknown != null) return fail(unknown);
 
+  const project = parseProject(args);
+  if (!project.ok) return project;
   const key = optionalString(args, 'key');
   if (!key.ok) return key;
   if (key.value == null) return fail('`key` is required: a content id or path.');
@@ -180,7 +225,12 @@ export function parseGetArgs(args: JsonObject): Parsed<GetArgs> {
 
   return {
     ok: true,
-    value: { key: key.value, fields: fields.value, include: include as Subtree[] },
+    value: {
+      project: project.value,
+      key: key.value,
+      fields: fields.value,
+      include: include as Subtree[],
+    },
   };
 }
 
@@ -267,6 +317,7 @@ function parseData(value: unknown): Parsed<Record<string, DataValue> | undefined
 
 export function parseUpdateArgs(args: JsonObject): Parsed<UpdateArgs> {
   const unknown = unknownKeys(args, [
+    'project',
     'key',
     'displayName',
     'language',
@@ -275,6 +326,8 @@ export function parseUpdateArgs(args: JsonObject): Parsed<UpdateArgs> {
   ]);
   if (unknown != null) return fail(unknown);
 
+  const project = parseProject(args);
+  if (!project.ok) return project;
   const key = optionalString(args, 'key');
   if (!key.ok) return key;
   if (key.value == null) return fail('`key` is required: a content id or path.');
@@ -294,6 +347,46 @@ export function parseUpdateArgs(args: JsonObject): Parsed<UpdateArgs> {
   return {
     ok: true,
     value: {
+      project: project.value,
+      key: key.value,
+      displayName: displayName.value,
+      language: language.value,
+      data: data.value,
+      expectedModifiedTime: expectedModifiedTime.value,
+    },
+  };
+}
+
+export function parseLocalizeArgs(args: JsonObject): Parsed<LocalizeArgs> {
+  const unknown = unknownKeys(args, [
+    'project',
+    'key',
+    'displayName',
+    'language',
+    'data',
+    'expectedModifiedTime',
+  ]);
+  if (unknown != null) return fail(unknown);
+
+  const project = parseProject(args);
+  if (!project.ok) return project;
+  if (project.value == null) return fail('`project` is required: the layer to localize into.');
+  const key = optionalString(args, 'key');
+  if (!key.ok) return key;
+  if (key.value == null) return fail('`key` is required: a content id or path.');
+  const displayName = optionalString(args, 'displayName');
+  if (!displayName.ok) return displayName;
+  const language = optionalString(args, 'language');
+  if (!language.ok) return language;
+  const data = parseData(args.data);
+  if (!data.ok) return data;
+  const expectedModifiedTime = optionalString(args, 'expectedModifiedTime');
+  if (!expectedModifiedTime.ok) return expectedModifiedTime;
+
+  return {
+    ok: true,
+    value: {
+      project: project.value,
       key: key.value,
       displayName: displayName.value,
       language: language.value,
@@ -355,13 +448,47 @@ export function buildSearchQuery({ text, path }: Pick<SearchArgs, 'text' | 'path
 // * Shaping
 //
 
+export type ProjectSummary = {
+  id: string;
+  displayName: string;
+  description: string | null;
+  language: string | null;
+  parents: string[];
+};
+
+export function toProjectSummary(project: {
+  id: string;
+  displayName: string;
+  description?: string;
+  language?: string;
+  parents?: string[];
+}): ProjectSummary {
+  return {
+    id: project.id,
+    displayName: project.displayName,
+    description: project.description ?? null,
+    language: project.language ?? null,
+    parents: project.parents ?? [],
+  };
+}
+
+// A layer item inherits from its parent project while it keeps the CONTENT flag, and turns
+// localized once an edit in the layer drops it. lib-content leaves `inherit` out when empty.
+export function inheritanceOf(content: Pick<Content, 'inherit' | 'originProject'>): Inheritance {
+  const inherit = content.inherit ?? [];
+  if (inherit.includes('CONTENT')) return 'inherited';
+  return inherit.length > 0 || content.originProject != null ? 'localized' : null;
+}
+
 export function toSummary(
   content: Content,
+  project: string,
   editBase: string,
   hasChildren: boolean | null,
 ): Summary {
   return {
     id: content._id,
+    project,
     name: content._name,
     path: content._path,
     displayName: content.displayName,
@@ -372,6 +499,7 @@ export function toSummary(
     workflowState: content.workflow?.state ?? null,
     valid: content.valid,
     hasChildren,
+    inheritance: inheritanceOf(content),
     editUrl: `${editBase}/${content._id}`,
   };
 }

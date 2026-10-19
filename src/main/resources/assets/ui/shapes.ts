@@ -108,6 +108,9 @@ export type ContentSummary = {
   workflowState: string | null;
   valid: boolean;
   hasChildren: boolean | null;
+  // Optional, since a result from an older server lacks them.
+  project?: string;
+  inheritance?: 'inherited' | 'localized' | null;
   editUrl: string;
 };
 

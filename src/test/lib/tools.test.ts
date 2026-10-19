@@ -1,6 +1,7 @@
 import * as auditLib from '/lib/xp/auditlog';
 import * as contentLib from '/lib/xp/content';
 import * as contextLib from '/lib/xp/context';
+import * as projectLib from '/lib/xp/project';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { ToolsConfig } from '../../main/resources/lib/config';
@@ -20,6 +21,8 @@ const getType = vi.mocked(contentLib.getType);
 const create = vi.mocked(contentLib.create);
 const run = vi.mocked(contextLib.run);
 const getContext = vi.mocked(contextLib.get);
+const getProject = vi.mocked(projectLib.get);
+const listProjects = vi.mocked(projectLib.list);
 
 const CONFIG: ToolsConfig = {
   token: 't',
@@ -35,7 +38,8 @@ const CONFIG: ToolsConfig = {
   nodeRepos: [],
 };
 
-const EDIT_BASE = 'http://localhost:8080/admin/cs/main/default/edit';
+const editBase = (project: string) => `http://localhost:8080/admin/cs/main/${project}/edit`;
+const EDIT_BASE = editBase('default');
 
 function item(overrides: Partial<Content> = {}): Content {
   return {
@@ -59,7 +63,7 @@ function item(overrides: Partial<Content> = {}): Content {
 }
 
 function tool(name: string, config = CONFIG): Tool {
-  const found = createContentTools(config, EDIT_BASE).find((t) => t.name === name);
+  const found = createContentTools(config, editBase).find((t) => t.name === name);
   if (found == null) throw new Error(`no tool ${name}`);
   return found;
 }
@@ -721,5 +725,308 @@ describe('audit log', () => {
 
     expect(result).toMatchObject({ changed: [] });
     expect(auditLog).not.toHaveBeenCalled();
+  });
+});
+
+describe('projects', () => {
+  const LAYER = {
+    id: 'norway',
+    displayName: 'Norway',
+    language: 'nb-NO',
+    parents: ['default'],
+    publicRead: false,
+  };
+
+  beforeEach(() => {
+    getProject.mockReset();
+    getProject.mockReturnValue(LAYER);
+  });
+
+  it('should read another project the user can read, and link its summary there', () => {
+    get.mockReturnValue(item({ inherit: ['CONTENT', 'PARENT', 'NAME', 'SORT'] }));
+
+    const result = value(tool('content_get').handler({ project: 'norway', key: 'id-1' }));
+
+    expect(run).toHaveBeenCalledWith(
+      expect.objectContaining({ repository: 'com.enonic.cms.norway', branch: 'draft' }),
+      expect.any(Function),
+    );
+    expect(getProject).toHaveBeenCalledWith({ id: 'norway' });
+    expect(result).toMatchObject({
+      project: 'norway',
+      inheritance: 'inherited',
+      editUrl: 'http://localhost:8080/admin/cs/main/norway/edit/id-1',
+    });
+  });
+
+  it('should refuse a project the user holds no role in without reading content', () => {
+    getProject.mockImplementation(() => {
+      throw new Error('Denied [get] access to project [secret]');
+    });
+
+    const outcome = tool('content_search').handler({ project: 'secret', text: 'x' });
+
+    expect(message(outcome)).toContain('No project `secret` that user:system:editor can read');
+    expect(query).not.toHaveBeenCalled();
+  });
+
+  it('should refuse an invalid project name without touching XP', () => {
+    const outcome = tool('content_update').handler({ project: '../x', key: 'id-1' });
+
+    expect(message(outcome)).toContain('`project` must be a project name');
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it('should read the configured project without a project lookup when none is passed', () => {
+    get.mockReturnValue(item());
+
+    const result = value(tool('content_get').handler({ key: 'id-1' }));
+
+    expect(run).toHaveBeenCalledWith(
+      expect.objectContaining({ repository: 'com.enonic.cms.default' }),
+      expect.any(Function),
+    );
+    expect(getProject).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ project: 'default', inheritance: null });
+  });
+
+  it('should advertise `project` on every tool that takes it, and name the project', () => {
+    for (const name of ['content_search', 'content_get', 'content_update']) {
+      const { inputSchema, description } = tool(name);
+
+      expect(Object.keys(inputSchema.properties as object)).toContain('project');
+      expect(description).toContain('project `default`, branch `draft`');
+      expect(description).not.toContain('=>');
+    }
+  });
+
+  it('should audit an update in another project under that repository', () => {
+    get.mockReturnValue(item());
+    update.mockImplementation(({ editor }) => editor(item() as never));
+
+    value(tool('content_update').handler({ project: 'norway', key: 'id-1', displayName: 'Hei' }));
+
+    expect(auditLog).toHaveBeenCalledWith(
+      expect.objectContaining({ objects: ['com.enonic.cms.norway:draft:id-1'] }),
+    );
+  });
+
+  it('should list the readable projects as the acting user, outside any repository', () => {
+    listProjects.mockReturnValue([
+      { id: 'default', displayName: 'Default', parents: [], publicRead: false },
+      LAYER,
+    ]);
+
+    const result = value(tool('project_list').handler({}));
+
+    expect(run).toHaveBeenCalledWith(
+      { user: { login: 'editor', idProvider: 'system' } },
+      expect.any(Function),
+    );
+    expect(result).toEqual({
+      defaultProject: 'default',
+      projects: [
+        { id: 'default', displayName: 'Default', description: null, language: null, parents: [] },
+        {
+          id: 'norway',
+          displayName: 'Norway',
+          description: null,
+          language: 'nb-NO',
+          parents: ['default'],
+        },
+      ],
+    });
+  });
+});
+
+describe('content_localize', () => {
+  const LAYER = {
+    id: 'norway',
+    displayName: 'Norway',
+    language: 'nb-NO',
+    parents: ['default'],
+    publicRead: false,
+  };
+  const INHERITED = {
+    language: 'en',
+    originProject: 'default',
+    inherit: ['CONTENT', 'PARENT', 'NAME', 'SORT'],
+  } as const;
+
+  // lib-content's update drops CONTENT and NAME from `inherit` when anything changed.
+  function localizeOnUpdate(): void {
+    update.mockImplementation(({ editor }) => ({
+      ...editor(item({ ...INHERITED, inherit: [...INHERITED.inherit] }) as never),
+      inherit: ['PARENT', 'SORT'],
+    }));
+  }
+
+  beforeEach(() => {
+    getProject.mockReset();
+    getProject.mockReturnValue(LAYER);
+  });
+
+  it('should write the translation on draft in the layer, in its language, and audit it', () => {
+    get.mockReturnValue(item({ ...INHERITED, inherit: [...INHERITED.inherit] }));
+    localizeOnUpdate();
+
+    const result = value(
+      tool('content_localize', { ...CONFIG, branch: 'master' }).handler({
+        project: 'norway',
+        key: 'id-1',
+        displayName: 'Hei',
+        data: { title: 'Hei' },
+      }),
+    );
+
+    expect(run).toHaveBeenCalledWith(
+      expect.objectContaining({ repository: 'com.enonic.cms.norway', branch: 'draft' }),
+      expect.any(Function),
+    );
+    expect(update).toHaveBeenCalledWith(
+      expect.objectContaining({ key: 'id-1', requireValid: true }),
+    );
+    expect(result).toMatchObject({
+      summary: { project: 'norway', language: 'nb-NO', inheritance: 'localized' },
+      localized: true,
+      changed: ['displayName', 'language', 'data.title'],
+      previous: { displayName: 'Hello', language: 'en', 'data.title': 'Hello' },
+    });
+    expect(auditLog).toHaveBeenCalledExactlyOnceWith({
+      type: 'grieg.mcp.content_localize',
+      user: 'user:system:editor',
+      objects: ['com.enonic.cms.norway:draft:id-1'],
+      data: { tool: 'content_localize', fields: ['displayName', 'language', 'data.title'] },
+    });
+  });
+
+  it('should keep an explicit language over the layer language', () => {
+    get.mockReturnValue(item({ ...INHERITED, inherit: [...INHERITED.inherit] }));
+    localizeOnUpdate();
+
+    const result = value(
+      tool('content_localize').handler({ project: 'norway', key: 'id-1', language: 'nn-NO' }),
+    );
+
+    expect(result).toMatchObject({ summary: { language: 'nn-NO' }, changed: ['language'] });
+  });
+
+  // Defensive: XP's update drops CONTENT on any change, but that is read from source, not observed.
+  it('should not claim localized when the written item still inherits', () => {
+    get.mockReturnValue(item({ ...INHERITED, inherit: [...INHERITED.inherit] }));
+    update.mockImplementation(({ editor }) =>
+      editor(item({ ...INHERITED, inherit: [...INHERITED.inherit] }) as never),
+    );
+
+    const result = value(
+      tool('content_localize').handler({ project: 'norway', key: 'id-1', displayName: 'Hei' }),
+    );
+
+    expect(result).toMatchObject({ localized: false, summary: { inheritance: 'inherited' } });
+  });
+
+  it.each([
+    {
+      case: 'a project the user cannot read',
+      setup: () =>
+        getProject.mockImplementation(() => {
+          throw new Error('Denied');
+        }),
+      expected: 'No project `norway`',
+    },
+    {
+      case: 'a project that is not a layer',
+      setup: () => getProject.mockReturnValue({ ...LAYER, parents: [] }),
+      expected: '`norway` is not a layer',
+    },
+    {
+      case: 'an item missing from the layer',
+      setup: () => get.mockReturnValue(null),
+      expected: 'keeps its id here',
+    },
+    {
+      case: 'an item created in the layer itself',
+      setup: () => get.mockReturnValue(item()),
+      expected: 'nothing to localize',
+    },
+    {
+      case: 'an inherited item that already has every value',
+      setup: () =>
+        get.mockReturnValue(
+          item({ ...INHERITED, language: 'nb-NO', inherit: [...INHERITED.inherit] }),
+        ),
+      expected: 'Nothing was localized',
+    },
+  ])('should refuse $case without writing', ({ setup, expected }) => {
+    setup();
+
+    const outcome = tool('content_localize').handler({
+      project: 'norway',
+      key: 'id-1',
+      displayName: 'Hello',
+    });
+
+    expect(message(outcome)).toContain(expected);
+    expect(update).not.toHaveBeenCalled();
+    expect(auditLog).not.toHaveBeenCalled();
+  });
+
+  it('should localize an inherited item untranslated into the layer language from project and key alone', () => {
+    get.mockReturnValue(item({ ...INHERITED, inherit: [...INHERITED.inherit] }));
+    localizeOnUpdate();
+
+    const result = value(tool('content_localize').handler({ project: 'norway', key: 'id-1' }));
+
+    expect(result).toMatchObject({ localized: true, changed: ['language'] });
+  });
+
+  it("should keep an already localized item's language unless one is passed", () => {
+    get.mockReturnValue(item({ language: 'nn-NO', originProject: 'default', inherit: ['PARENT'] }));
+    update.mockImplementation(({ editor }) =>
+      editor(item({ language: 'nn-NO', originProject: 'default', inherit: ['PARENT'] }) as never),
+    );
+
+    const result = value(
+      tool('content_localize').handler({ project: 'norway', key: 'id-1', data: { title: 'Hei' } }),
+    );
+
+    expect(result).toMatchObject({ changed: ['data.title'], summary: { language: 'nn-NO' } });
+  });
+
+  it('should refuse a stale expectedModifiedTime without writing', () => {
+    get.mockReturnValue(item({ ...INHERITED, inherit: [...INHERITED.inherit] }));
+
+    const outcome = tool('content_localize').handler({
+      project: 'norway',
+      key: 'id-1',
+      displayName: 'Hei',
+      expectedModifiedTime: '2025-01-01T00:00:00Z',
+    });
+
+    expect(message(outcome)).toContain('Conflict');
+    expect(update).not.toHaveBeenCalled();
+    expect(auditLog).not.toHaveBeenCalled();
+  });
+
+  it('should leave an already localized item alone when nothing differs', () => {
+    get.mockReturnValue(item({ language: 'nb-NO', originProject: 'default', inherit: ['PARENT'] }));
+
+    const result = value(
+      tool('content_localize').handler({ project: 'norway', key: 'id-1', displayName: 'Hello' }),
+    );
+
+    expect(result).toMatchObject({
+      localized: false,
+      changed: [],
+      summary: { inheritance: 'localized' },
+    });
+    expect(update).not.toHaveBeenCalled();
+    expect(auditLog).not.toHaveBeenCalled();
+  });
+
+  it('should require a project', () => {
+    expect(message(tool('content_localize').handler({ key: 'id-1' }))).toContain(
+      '`project` is required',
+    );
   });
 });

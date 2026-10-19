@@ -112,7 +112,7 @@ export function post(req: Request): Response {
   if (config.credential === 'token') warnSharedToken(config);
 
   const toolsets: Record<string, Tool[]> = {
-    content: createContentTools(config, contentStudioEditBase(origin, config.project)),
+    content: createContentTools(config, (project) => contentStudioEditBase(origin, project)),
     nodes: createNodeTools(config),
     [WORKFLOWS_TOOLSET]: createWorkflowTools(config, adminToolUrl(origin, app.name)),
   };
