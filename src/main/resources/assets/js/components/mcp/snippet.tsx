@@ -6,18 +6,24 @@ import { CopyButton } from '../ui/copy-button';
 export type SnippetProps = {
   label: ReactNode;
   text: string;
+  wrap?: boolean;
 };
 
 const SNIPPET_NAME = 'Snippet';
 
-export const Snippet = ({ label, text }: SnippetProps): ReactElement => {
+export const Snippet = ({ label, text, wrap = false }: SnippetProps): ReactElement => {
   return (
     <div data-component={SNIPPET_NAME} className="flex min-w-0 flex-col gap-1.5">
       <div className="flex items-center justify-between gap-2">
         <span className="text-muted-foreground text-xs">{label}</span>
         <CopyButton text={text} />
       </div>
-      <pre className="bg-muted overflow-x-auto rounded-md border p-3 font-mono text-xs select-all">
+      <pre
+        className={cn(
+          'bg-muted overflow-x-auto rounded-md border p-3 font-mono text-xs select-all',
+          wrap && 'break-words whitespace-pre-wrap',
+        )}
+      >
         {text}
       </pre>
     </div>

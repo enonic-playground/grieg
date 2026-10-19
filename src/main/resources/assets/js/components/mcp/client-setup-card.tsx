@@ -1,6 +1,7 @@
 import {
   AppWindow,
   ChevronRight,
+  CodeXml,
   Download,
   Info,
   MessagesSquare,
@@ -19,8 +20,12 @@ import { Button } from '../ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
 import { CopyField, CopyFields, Snippet } from './snippet';
 import {
+  buildAgentPrompt,
   buildClaudeCommand,
+  buildCodexCommand,
+  buildCodexToml,
   buildCurlCheck,
+  buildCursorConfig,
   buildDesktopConfig,
   buildHttpConfig,
   buildMcpJson,
@@ -202,6 +207,34 @@ const CodeSetup = ({ mcp, apiKey }: SetupProps): ReactElement => {
 
 CodeSetup.displayName = CODE_SETUP_NAME;
 
+const CODEX_SETUP_NAME = 'CodexSetup';
+
+const CodexSetup = ({ mcp, apiKey }: SetupProps): ReactElement => {
+  const { t } = useTranslation();
+
+  return (
+    <div data-component={CODEX_SETUP_NAME} className="flex flex-col gap-5">
+      <Instructions>
+        <Instruction title={t('mcp.connect.codex.token', { env: TOKEN_ENV })}>
+          <Snippet label={t('mcp.connect.shell')} text={buildReadToken()} />
+          <CopyFields>
+            <KeyField apiKey={apiKey} />
+          </CopyFields>
+        </Instruction>
+        <Instruction title={t('mcp.connect.codex.add')}>
+          <Snippet label={t('mcp.connect.shell')} text={buildCodexCommand(mcp.uri)} />
+        </Instruction>
+        <Instruction title={t('mcp.connect.codex.check')} />
+      </Instructions>
+
+      <PlaintextWarning>{t('mcp.connect.codex.oauthWarning')}</PlaintextWarning>
+      <Snippet label={t('mcp.connect.codex.toml')} text={buildCodexToml(mcp.uri)} />
+    </div>
+  );
+};
+
+CodexSetup.displayName = CODEX_SETUP_NAME;
+
 // `off`: no sign-in at all. `blocked`: sign-in is on, but `oauth.redirectUris` refuses ChatGPT.
 type ChatGptOauth = 'ready' | 'blocked' | 'off';
 
@@ -341,6 +374,14 @@ const OtherSetup = ({ mcp, apiKey }: SetupProps): ReactElement => {
 
   return (
     <div data-component={OTHER_SETUP_NAME} className="flex flex-col gap-5">
+      <div className="flex flex-col gap-2.5">
+        <p className="text-sm leading-5">{t('mcp.connect.other.prompt', { env: TOKEN_ENV })}</p>
+        <Snippet label={t('mcp.connect.other.promptLabel')} text={buildAgentPrompt(mcp.uri)} wrap />
+      </div>
+      <Snippet
+        label={t('mcp.connect.other.cursor', { env: TOKEN_ENV })}
+        text={buildCursorConfig(mcp.uri)}
+      />
       <PlaintextWarning>{t('mcp.connect.other.warning')}</PlaintextWarning>
       <Snippet label={t('mcp.connect.other.http')} text={buildHttpConfig(mcp.uri, key)} />
       <Snippet label={t('mcp.connect.other.vscode')} text={buildVsCodeConfig(mcp.uri, key)} />
@@ -386,6 +427,10 @@ export const ClientSetupCard = ({ mcp, apiKey, done }: ClientSetupCardProps): Re
             <SquareTerminal />
             {t('mcp.connect.tab.code')}
           </TabsTrigger>
+          <TabsTrigger value="codex">
+            <CodeXml />
+            {t('mcp.connect.tab.codex')}
+          </TabsTrigger>
           <TabsTrigger value="chatgpt">
             <MessagesSquare />
             {t('mcp.connect.tab.chatgpt')}
@@ -400,6 +445,9 @@ export const ClientSetupCard = ({ mcp, apiKey, done }: ClientSetupCardProps): Re
         </TabsContent>
         <TabsContent value="code">
           <CodeSetup mcp={mcp} apiKey={apiKey} />
+        </TabsContent>
+        <TabsContent value="codex">
+          <CodexSetup mcp={mcp} apiKey={apiKey} />
         </TabsContent>
         <TabsContent value="chatgpt">
           <ChatGptSetup mcp={mcp} />

@@ -1,11 +1,16 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  buildAgentPrompt,
   buildClaudeCommand,
+  buildCodexCommand,
+  buildCodexToml,
   buildCurlCheck,
+  buildCursorConfig,
   buildDesktopConfig,
   buildHttpConfig,
   buildMcpJson,
+  buildReadToken,
   buildStdioConfig,
   buildVsCodeConfig,
 } from '../../../../../main/resources/assets/js/components/mcp/snippets';
@@ -27,6 +32,9 @@ describe('shell commands', () => {
   ])('should keep the plain endpoint %s', (url) => {
     expect(buildClaudeCommand(url)).toContain(` "${url}" `);
     expect(buildCurlCheck(url)).toContain(` "${url}" `);
+    expect(buildCodexCommand(url)).toContain(` "${url}" `);
+    expect(buildCodexToml(url)).toContain(`url = "${url}"`);
+    expect(buildAgentPrompt(url)).toContain(`- URL: \`${url}\`\n`);
   });
 
   it.each([
@@ -34,9 +42,14 @@ describe('shell commands', () => {
     'http://a`id`.example/api/com.enonic.app.grieg:mcp',
     'http://a"b.example/api/com.enonic.app.grieg:mcp',
   ])('should leave a placeholder for the shell-unsafe endpoint %s', (url) => {
-    for (const command of [buildClaudeCommand(url), buildCurlCheck(url)]) {
+    for (const command of [buildClaudeCommand(url), buildCurlCheck(url), buildCodexCommand(url)]) {
       expect(command).toContain(' "<endpoint URL>" ');
       expect(command).not.toContain('example');
+    }
+    expect(buildCodexToml(url)).toContain('url = "<endpoint URL>"');
+    expect(buildAgentPrompt(url)).toContain('- URL: `<endpoint URL>`\n');
+    for (const text of [buildCodexToml(url), buildAgentPrompt(url)]) {
+      expect(text).not.toContain('.example/');
     }
   });
 
@@ -103,5 +116,37 @@ describe('client configs', () => {
       args: ['/path/to/grieg/dev/mcp-stdio.ts'],
       env: { MCP_URL: MCP_URI, MCP_TOKEN: KEY },
     });
+  });
+});
+
+describe('Codex', () => {
+  it('should pass the key only by the name of its environment variable', () => {
+    expect(buildCodexCommand(MCP_URI)).toBe(
+      `codex mcp add grieg --url "${MCP_URI}" --bearer-token-env-var GRIEG_MCP_TOKEN`,
+    );
+    expect(buildCodexToml(MCP_URI)).toBe(
+      `[mcp_servers.grieg]\nurl = "${MCP_URI}"\nbearer_token_env_var = "GRIEG_MCP_TOKEN"`,
+    );
+  });
+});
+
+describe('buildCursorConfig', () => {
+  it('should reference the key through Cursor env interpolation only', () => {
+    expect(entry(buildCursorConfig(MCP_URI))).toEqual({
+      url: MCP_URI,
+      headers: { Authorization: 'Bearer ${env:GRIEG_MCP_TOKEN}' },
+    });
+  });
+});
+
+describe('buildAgentPrompt', () => {
+  it('should name the variable and the endpoint check, and hold no key', () => {
+    const prompt = buildAgentPrompt(MCP_URI);
+
+    expect(prompt).toContain(`- URL: \`${MCP_URI}\`\n`);
+    expect(prompt).toContain('environment variable `GRIEG_MCP_TOKEN`');
+    expect(prompt).toContain(`\`${buildReadToken()}\``);
+    expect(prompt.split('\n\n').at(-1)).toBe(`\`\`\`bash\n${buildCurlCheck(MCP_URI)}\n\`\`\``);
+    expect(prompt).not.toMatch(/grieg_[A-Za-z0-9]/);
   });
 });

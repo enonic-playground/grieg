@@ -408,15 +408,57 @@ describe('client setup', () => {
     }
   });
 
+  it('should keep the key out of the Codex setup', async () => {
+    const { user } = await generate();
+
+    await user.click(screen.getByRole('tab', { name: 'Codex' }));
+    const setup = getCard('CodexSetup');
+
+    expect(
+      within(setup).getByText('read -rs GRIEG_MCP_TOKEN && export GRIEG_MCP_TOKEN'),
+    ).toBeVisible();
+    expect(within(setup).getByText(/^codex mcp add/).textContent).toBe(
+      `codex mcp add grieg --url "${MCP_URI}" --bearer-token-env-var GRIEG_MCP_TOKEN`,
+    );
+    expect(within(setup).getByText(/^\[mcp_servers\.grieg\]/).textContent).toBe(
+      `[mcp_servers.grieg]\nurl = "${MCP_URI}"\nbearer_token_env_var = "GRIEG_MCP_TOKEN"`,
+    );
+    expect(within(setup).getByText(/Keep --bearer-token-env-var/)).toBeVisible();
+    for (const pre of setup.querySelectorAll('pre')) {
+      expect(pre.textContent).not.toContain(PLAINTEXT);
+    }
+  });
+
+  it('should open other clients on a setup prompt that carries the URL but not the key', async () => {
+    const { user } = await generate();
+
+    await user.click(screen.getByRole('tab', { name: 'Other clients' }));
+    const setup = getCard('OtherSetup');
+
+    const prompt = setup.querySelector('pre')?.textContent ?? '';
+    expect(prompt).toMatch(/^Connect yourself to the grieg MCP server/);
+    expect(prompt).toContain(`- URL: \`${MCP_URI}\`\n`);
+    expect(prompt).not.toContain(PLAINTEXT);
+    const cursor = within(setup).getByText(/env:GRIEG_MCP_TOKEN/).textContent ?? '';
+    expect(JSON.parse(cursor).mcpServers.grieg).toEqual({
+      url: MCP_URI,
+      headers: { Authorization: 'Bearer ${env:GRIEG_MCP_TOKEN}' },
+    });
+  });
+
   it('should put the key into the configs of other clients while it is shown', async () => {
     const { user } = await generate();
 
     await user.click(screen.getByRole('tab', { name: 'Other clients' }));
     const setup = getCard('OtherSetup');
 
-    expect(within(setup).getByText(/"mcpServers"[\s\S]*"headers"/).textContent).toContain(
-      `Bearer ${PLAINTEXT}`,
-    );
+    const http = within(setup)
+      .getByText('Other clients that take a remote URL with headers in mcpServers')
+      .closest('[data-component="Snippet"]');
+    expect(JSON.parse(http?.querySelector('pre')?.textContent ?? '').mcpServers.grieg).toEqual({
+      url: MCP_URI,
+      headers: { Authorization: `Bearer ${PLAINTEXT}` },
+    });
     expect(within(setup).getByText(/"servers"/).textContent).toContain(`Bearer ${PLAINTEXT}`);
     expect(within(setup).getByText(/"MCP_TOKEN"/).textContent).toContain(PLAINTEXT);
     const curl = within(setup).getByText(/^curl/).textContent;
@@ -516,7 +558,7 @@ describe('client setup', () => {
     await user.click(screen.getByRole('button', { name: 'I have saved the key' }));
 
     expect(await screen.findByText('grieg_AAAA…AAAA')).toBeInTheDocument();
-    for (const tab of ['Claude Desktop', 'Claude Code', 'ChatGPT', 'Other clients']) {
+    for (const tab of ['Claude Desktop', 'Claude Code', 'Codex', 'ChatGPT', 'Other clients']) {
       await user.click(screen.getByRole('tab', { name: tab }));
       expect(document.body.textContent).not.toContain(PLAINTEXT);
     }
