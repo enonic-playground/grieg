@@ -101,7 +101,7 @@ const WorkflowDetails = ({ workflow }: WorkflowDetailsProps): ReactElement => {
       </Card>
 
       <StepsEditorCard workflowId={workflow.id} draft={draft} />
-      <RunsCard workflowId={workflow.id} />
+      <RunsCard workflow={workflow} />
       <ScheduleCard
         workflowId={workflow.id}
         job={scheduleQuery.data}

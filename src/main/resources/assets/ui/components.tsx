@@ -11,7 +11,7 @@ const RUN_STATUS: Record<RunStatus, { label: string; className: string; icon: Re
   running: {
     label: 'Running',
     className: 'text-info',
-    icon: <LoaderCircle className="animate-spin" aria-hidden />,
+    icon: <LoaderCircle className="motion-safe:animate-spin" aria-hidden />,
   },
   done: { label: 'Done', className: 'text-success', icon: <CircleCheck aria-hidden /> },
   failed: { label: 'Failed', className: 'text-danger', icon: <CircleX aria-hidden /> },

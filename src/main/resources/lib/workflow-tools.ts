@@ -92,11 +92,16 @@ function toRunSummary(run: Run): JsonObject {
   };
 }
 
-function toRunDetail(run: Run, adminUrl: string): JsonObject {
+function toRunDetail(run: Run, workflow: Workflow, adminUrl: string): JsonObject {
   const output = capped(run.output);
   return {
     ...toRunSummary(run),
     workflowId: run.workflowId,
+    workflow: {
+      displayName: workflow.displayName,
+      stepIds: workflow.steps.map((step) => step.id),
+      modifiedAt: workflow.modifiedAt,
+    },
     taskId: run.taskId ?? null,
     steps: run.steps.map((step) => {
       const stepOutput = capped(step.output);
@@ -444,7 +449,7 @@ export function createWorkflowTools(config: ToolsConfig, toolBase: string): Tool
   const runGet: Tool = {
     name: 'run_get',
     title: 'Read run',
-    description: `Read one run with its steps: each step's output or error and duration, and the run's output. Each output is cut to ${MAX_TOOL_OUTPUT} characters, marked \`truncated\`; the admin tool shows it whole.`,
+    description: `Read one run with its steps: each step's output or error and duration, the run's output, and the workflow's current step ids, so a running run shows the steps it has left. Each output is cut to ${MAX_TOOL_OUTPUT} characters, marked \`truncated\`; the admin tool shows it whole.`,
     inputSchema: {
       type: 'object',
       properties: {
@@ -459,6 +464,17 @@ export function createWorkflowTools(config: ToolsConfig, toolBase: string): Tool
       properties: {
         ...RUN_SUMMARY_PROPERTIES,
         workflowId: { type: 'string' },
+        workflow: {
+          type: 'object',
+          description:
+            "The workflow as it is now. Its stepIds name the steps a running run has left only when modifiedAt is not after the run's startedAt.",
+          properties: {
+            displayName: { type: 'string' },
+            stepIds: { type: 'array', items: { type: 'string' } },
+            modifiedAt: { type: 'string' },
+          },
+          required: ['displayName', 'stepIds', 'modifiedAt'],
+        },
         taskId: NULLABLE_STRING,
         steps: {
           type: 'array',
@@ -481,6 +497,7 @@ export function createWorkflowTools(config: ToolsConfig, toolBase: string): Tool
       required: [
         ...Object.keys(RUN_SUMMARY_PROPERTIES),
         'workflowId',
+        'workflow',
         'taskId',
         'steps',
         'output',
@@ -498,7 +515,7 @@ export function createWorkflowTools(config: ToolsConfig, toolBase: string): Tool
               `No run ${runId ?? ''} of workflow ${workflow.id}. Call run_list for run ids.`,
             );
           }
-          return ok(toRunDetail(run, adminUrl(workflow.id)));
+          return ok(toRunDetail(run, workflow, adminUrl(workflow.id)));
         }),
       ),
   };

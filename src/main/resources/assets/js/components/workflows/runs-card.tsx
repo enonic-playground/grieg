@@ -2,16 +2,19 @@ import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
-import type { Run, RunStatus } from '../../lib/api/workflows';
+import type { Run, RunStatus, Workflow } from '../../lib/api/workflows';
+import type { TimelinePlan } from '../../lib/timeline';
 import type { ReactElement } from 'react';
 
 import { runsQueryOptions } from '../../lib/api/workflows';
-import { duration, elapsed } from '../../lib/format';
+import { elapsed } from '../../lib/format';
+import { runTimeline } from '../../lib/timeline';
 import { cn } from '../../lib/utils';
 import { PageError, PageSkeleton } from '../page';
 import { Badge } from '../ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
 import { RelativeTime } from '../ui/relative-time';
+import { Clock, Output, RunTimeline } from './run-timeline';
 
 const RUN_COLUMNS = 'grid grid-cols-[5rem_5.5rem_minmax(0,1fr)_11rem_4rem] gap-3';
 
@@ -22,38 +25,18 @@ const STATUS_CLASSES: Record<RunStatus, string> = {
   skipped: 'text-muted-foreground',
 };
 
-type OutputProps = {
-  label: string;
-  text: string;
-  error?: boolean;
-};
-
-const Output = ({ label, text, error = false }: OutputProps): ReactElement => (
-  <div className="flex flex-col gap-1">
-    <span className="text-muted-foreground text-[10px] font-semibold tracking-[0.08em] uppercase">
-      {label}
-    </span>
-    <pre
-      className={cn(
-        'bg-muted max-h-64 overflow-auto rounded-md p-2 font-mono text-xs whitespace-pre-wrap',
-        error && 'text-destructive',
-      )}
-    >
-      {text}
-    </pre>
-  </div>
-);
-
 type RunItemProps = {
   run: Run;
+  plan: TimelinePlan;
 };
 
 const RUN_ITEM_NAME = 'RunItem';
 
-const RunItem = ({ run }: RunItemProps): ReactElement => {
+const RunItem = ({ run, plan }: RunItemProps): ReactElement => {
   const { t } = useTranslation();
   // Owned here, so a panel stays as the user left it when its run finishes.
   const [open, setOpen] = useState(run.status === 'running');
+  const steps = runTimeline(run, plan);
 
   return (
     <li data-component={RUN_ITEM_NAME} className="border-b last:border-0">
@@ -75,26 +58,21 @@ const RunItem = ({ run }: RunItemProps): ReactElement => {
           </span>
           <RelativeTime iso={run.startedAt} />
           <span className="text-muted-foreground text-right tabular-nums">
-            {elapsed(run.startedAt, run.finishedAt ?? null) ?? '-'}
+            {run.status === 'running' ? (
+              <Clock since={Date.parse(run.startedAt)} />
+            ) : (
+              (elapsed(run.startedAt, run.finishedAt ?? null) ?? '-')
+            )}
           </span>
         </summary>
         <div className="flex flex-col gap-3 px-5 pb-4">
-          {run.steps.map((step) => (
-            <div key={step.id} className="flex flex-col gap-1">
-              <span className="text-xs font-medium">
-                {t('workflows.runs.step', { id: step.id })}{' '}
-                <span className="text-muted-foreground font-normal tabular-nums">
-                  {duration(step.ms)}
-                </span>
-              </span>
-              {step.output != null && (
-                <Output label={t('workflows.runs.output')} text={step.output} />
-              )}
-              {step.error != null && (
-                <Output label={t('workflows.runs.error')} text={step.error} error />
-              )}
-            </div>
-          ))}
+          {steps.length > 0 ? (
+            <RunTimeline steps={steps} finished={run.status !== 'running'} />
+          ) : (
+            run.status === 'running' && (
+              <p className="text-muted-foreground text-xs">{t('workflows.runs.waiting')}</p>
+            )
+          )}
           {run.error != null && (
             <Output label={t('workflows.runs.runError')} text={run.error} error />
           )}
@@ -110,14 +88,18 @@ const RunItem = ({ run }: RunItemProps): ReactElement => {
 RunItem.displayName = RUN_ITEM_NAME;
 
 export type RunsCardProps = {
-  workflowId: string;
+  workflow: Workflow;
 };
 
 const RUNS_CARD_NAME = 'RunsCard';
 
-export const RunsCard = ({ workflowId }: RunsCardProps): ReactElement => {
+export const RunsCard = ({ workflow }: RunsCardProps): ReactElement => {
   const { t } = useTranslation();
-  const { data, isPending, error } = useQuery(runsQueryOptions(workflowId));
+  const { data, isPending, error } = useQuery(runsQueryOptions(workflow.id));
+  const plan: TimelinePlan = {
+    stepIds: workflow.steps.map((step) => step.id),
+    modifiedAt: workflow.modifiedAt,
+  };
 
   const renderBody = (): ReactElement => {
     if (isPending) return <PageSkeleton />;
@@ -142,7 +124,7 @@ export const RunsCard = ({ workflowId }: RunsCardProps): ReactElement => {
         </div>
         <ul>
           {data.map((run) => (
-            <RunItem key={run.id} run={run} />
+            <RunItem key={run.id} run={run} plan={plan} />
           ))}
         </ul>
       </div>

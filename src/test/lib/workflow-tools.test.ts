@@ -33,7 +33,7 @@ vi.mock('../../main/resources/lib/time-zone', () => ({ isTimeZone: vi.fn() }));
 
 type JsonObject = Record<string, unknown>;
 type Schema = {
-  properties: Record<string, { type: unknown; items: Schema }>;
+  properties: Record<string, { type: unknown; items: Schema; required: string[] }>;
   required: string[];
 };
 
@@ -340,6 +340,7 @@ describe('run_list', () => {
 
 describe('run_get', () => {
   it('should return the run with its steps', () => {
+    getById.mockReturnValue({ ...WORKFLOW, modifiedAt: '2026-10-14T08:00:00.000Z' });
     getRun.mockReturnValue(run({ steps: [{ id: 'a', error: 'quota exceeded', ms: 40 }] }));
 
     expect(value(tool('run_get').handler({ workflowId: 'wf-1', runId: 'run-1' }))).toEqual({
@@ -348,6 +349,11 @@ describe('run_get', () => {
       status: 'done',
       trigger: 'manual',
       user: 'user:system:alice',
+      workflow: {
+        displayName: 'Weekly digest',
+        stepIds: ['a', 'b'],
+        modifiedAt: '2026-10-14T08:00:00.000Z',
+      },
       taskId: 'task-1',
       startedAt: '2026-10-15T10:00:00.000Z',
       finishedAt: '2026-10-15T10:00:03.000Z',
@@ -356,6 +362,18 @@ describe('run_get', () => {
       output: 'short',
       adminUrl: ADMIN_URL,
     });
+  });
+
+  it('should return exactly the fields its output schema requires', () => {
+    getRun.mockReturnValue(run());
+
+    const result = value(tool('run_get').handler({ workflowId: 'wf-1', runId: 'run-1' }));
+    const schema = tool('run_get').outputSchema as Schema;
+
+    expect(Object.keys(result).sort()).toEqual([...schema.required].sort());
+    expect(Object.keys(result.workflow as JsonObject).sort()).toEqual(
+      [...schema.properties.workflow.required].sort(),
+    );
   });
 
   it('should cap each output over the limit and mark it truncated', () => {

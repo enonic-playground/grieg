@@ -53,3 +53,8 @@ export function shortUser(key: string): string {
   if (type !== 'user' || login.length === 0) return key;
   return idProvider === 'system' ? login.join(':') : `${login.join(':')} (${idProvider})`;
 }
+
+export function counter(ms: number): string {
+  const seconds = Math.floor(ms / 1000);
+  return seconds < 60 ? `${seconds} s` : duration(seconds * 1000);
+}

@@ -51,6 +51,7 @@ export type RunStep = {
 
 export type RunDetail = RunSummary & {
   workflowId: string;
+  workflow: { displayName: string; stepIds: string[]; modifiedAt: string };
   taskId: string | null;
   steps: RunStep[];
   output: string | null;
