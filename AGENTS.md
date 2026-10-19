@@ -85,6 +85,12 @@ from data, no network.
   to about half the size of 1.x (`App` alone: 230 kB against 427 kB minified).
 - **Writes:** the card calls only read tools (`App.callServerTool`). A write is a `ui/message`
   asking Claude, so it runs behind the host's approval prompt; never call a write tool from it.
+  The content form (`content_type_get` with a `draft`) puts the reviewed `content_create`
+  arguments in the model context (`updateModelContext`) first, and inlines them in the message
+  when the host does not take context.
+- **Shared rules:** `assets/ui/form.ts` checks a draft with `checkOccurrences` from
+  `lib/content-shape.ts`, the same function `content_create` runs, so the card imports a server
+  module; keep `lib/content-shape.ts` and `lib/shape.ts` free of server globals for that.
 - **Harness:** `pnpm dev` serves `dev/cards.html`, a stand-in host on the official `AppBridge`.
   It loads the built card from `/dev-card/<view>` and answers its `tools/call` from
   `dev/mock-mcp.ts`, which shares the mock API's state. Rebuild with `pnpm build:dev:ui` after a
@@ -189,7 +195,8 @@ server's tools in `src/test/apis/mcp.test.ts`, so a new tool goes into both.
     `node_query`/`node_get`/`node_repos` and `content_search`/`content_get`/`content_type_get`
     to five `ui://grieg/*` views of one HTML file, each stamped with `<html data-view>`. The card
     tells results apart by shape (`inferTool` in `assets/ui/shapes.ts`), so a new card tool
-    needs a key no other result carries. `apis/mcp/mcp.ts` reads `ui/card.html` through lib-io
+    needs a key no other result carries. A `content_type_get` result with `draft` renders as
+    an editable form rather than the field list. `apis/mcp/mcp.ts` reads `ui/card.html` through lib-io
     once per app start; without it, it logs once and serves no resources or tool `_meta.ui`.
     `resources/*` and the `resources` capability exist only while there are resources.
     `describeTools` names a tool's view three ways: `_meta.ui.resourceUri`, the flat

@@ -16,8 +16,8 @@ export type CardContextValue = {
     merge: (current: ToolResults[T], next: ToolResults[T]) => ToolResults[T],
   ) => Promise<void>;
   // Asks Claude to make a write. `hint` is what the user can type instead when the host does
-  // not take the message.
-  ask: (request: string, hint: string) => void;
+  // not take the message. Resolves `true` once the host took it.
+  ask: (request: string, hint: string) => Promise<boolean>;
 };
 
 export const CardContext = createContext<CardContextValue | null>(null);

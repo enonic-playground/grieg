@@ -3,6 +3,7 @@
 /* Only the card and the admin UI primitives it reuses, not the whole admin app. */
 @source './';
 @source '../js/components/ui/button.tsx';
+@source '../js/components/ui/input.ts';
 
 /*
  * Admin UI tokens map onto the host's MCP Apps style variables, set on <html> once the card

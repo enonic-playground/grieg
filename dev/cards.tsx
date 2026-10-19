@@ -12,6 +12,25 @@ import type { ReactElement } from 'react';
 
 type Scenario = { view: string; tool: string; args: Record<string, unknown> };
 
+const DRAFT = {
+  parentPath: '/coffee-blog/articles',
+  displayName: 'Cold brew at home',
+  data: {
+    title: 'Cold brew at home',
+    lead: 'Smooth, low-acid coffee with nothing but a jar and a night in the fridge.',
+    body: '<p>Coarse grind, cold water, 16 hours.</p>',
+    category: 'guide',
+    tags: ['cold brew', 'summer'],
+    readingTime: 6,
+    featured: true,
+    rating: 4.5,
+    layout: 'wide',
+    publishOn: '2026-11-02',
+    author: { name: 'Ingrid Berg', bio: 'Barista and trainer in Oslo' },
+    media: { _selected: ['image'], image: { caption: 'A jar of cold brew' } },
+  },
+};
+
 const SCENARIOS: Record<string, Scenario> = {
   workflows: { view: 'workflows', tool: 'workflow_list', args: {} },
   runs: { view: 'runs', tool: 'run_list', args: { workflowId: 'wf-1' } },
@@ -48,6 +67,24 @@ const SCENARIOS: Record<string, Scenario> = {
     view: 'content',
     tool: 'content_type_get',
     args: { name: 'com.example.news:article' },
+  },
+  'content-form': {
+    view: 'content',
+    tool: 'content_type_get',
+    args: { name: 'com.example.news:article', draft: DRAFT },
+  },
+  'content-refused': {
+    view: 'content',
+    tool: 'content_type_get',
+    args: {
+      name: 'com.example.news:article',
+      draft: {
+        ...DRAFT,
+        data: { ...DRAFT.data, title: undefined, author: [{ bio: 'Roaster' }, { bio: 'Editor' }] },
+        error:
+          'Nothing was created: the data does not fit `com.example.news:article`. `data.title` needs at least 1 value(s), got 0. `data.author.0.name` needs at least 1 value(s), got 0. `data.author.1.name` needs at least 1 value(s), got 0. Check the fields with content_type_get and retry.',
+      },
+    },
   },
 };
 
@@ -164,7 +201,7 @@ const Harness = (): ReactElement => {
     const host = new AppBridge(
       null,
       { name: 'grieg-dev-host', version: '1.0.0' },
-      { openLinks: {}, serverTools: {}, message: { text: {} } },
+      { openLinks: {}, serverTools: {}, message: { text: {} }, updateModelContext: { text: {} } },
       { hostContext: hostContext(latest.current.theme, name) },
     );
     bridge.current = host;
@@ -177,6 +214,11 @@ const Harness = (): ReactElement => {
       const rejected = latest.current.rejectMessages;
       record(`ui/message${rejected ? ' (rejected)' : ''}: ${text}`);
       return rejected ? { isError: true } : {};
+    };
+    host.onupdatemodelcontext = async ({ content }) => {
+      const text = (content ?? []).map((item) => ('text' in item ? item.text : '')).join(' ');
+      record(`ui/update-model-context: ${text}`);
+      return {};
     };
     host.onopenlink = async ({ url }) => {
       record(`ui/open-link ${url}`);

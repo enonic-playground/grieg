@@ -510,6 +510,53 @@ describe('content_type_get', () => {
     expect(message(tool('content_type_get').handler({}))).toContain('`name` is required');
     expect(run).not.toHaveBeenCalled();
   });
+
+  it('should hand a draft back with the form, its parent path normalized', () => {
+    getType.mockReturnValue(ARTICLE);
+
+    const result = value(
+      tool('content_type_get').handler({
+        name: 'my.app:article',
+        draft: {
+          parentPath: '/content/site',
+          displayName: ' News ',
+          data: { title: 'News' },
+          error: '`data.title` needs at least 1 value(s), got 0.',
+        },
+      }),
+    );
+
+    expect(result.draft).toEqual({
+      parentPath: '/site',
+      displayName: 'News',
+      data: { title: 'News' },
+      error: '`data.title` needs at least 1 value(s), got 0.',
+    });
+  });
+
+  it.each([
+    ['x', '`draft` must be an object'],
+    [{ parentPath: 'site' }, '`draft.parentPath` is required'],
+    [{ parentPath: '/', displayName: 1 }, '`draft.displayName` must be a string'],
+    [{ parentPath: '/', data: [] }, '`draft.data` must be an object'],
+    [{ parentPath: '/', data: { title: null } }, '`draft.data.title`'],
+    [{ parentPath: '/', language: 'en' }, 'Unknown `draft` key(s): language'],
+  ])('should refuse the draft %j', (draft, expected) => {
+    expect(message(tool('content_type_get').handler({ name: 'my.app:article', draft }))).toContain(
+      expected,
+    );
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it('should take no draft on a read-only server', () => {
+    const readOnly = tool('content_type_get', { ...CONFIG, readOnly: true });
+
+    expect(readOnly.description).not.toContain('`draft`');
+    expect(readOnly.inputSchema.properties).not.toHaveProperty('draft');
+    expect(
+      message(readOnly.handler({ name: 'my.app:article', draft: { parentPath: '/' } })),
+    ).toContain('Unknown argument(s): draft');
+  });
 });
 
 describe('content_create', () => {
