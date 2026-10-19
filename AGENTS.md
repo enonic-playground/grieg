@@ -1,9 +1,9 @@
 # grieg
 
 Enonic XP application (`com.enonic.app.grieg`) that orchestrates AI integrations, scheduled jobs
-and workflows. It has an admin tool (`admin/tools/main/`), five server APIs (`system`,
-`workflows` and `crons`, all admin-only, `keys` for MCP role members and admins, plus the public,
-token-gated `mcp`), one task (`run-workflow`), and no site components.
+and workflows. It has an admin tool (`admin/tools/main/`), six server APIs (`system`,
+`workflows` and `crons`, all admin-only, `keys` for MCP role members and admins, the public,
+token-gated `mcp`, and the public `oauth`), one task (`run-workflow`), and no site components.
 
 This is the only agent instruction file. Do not add a `CLAUDE.md`: Claude Code reads `AGENTS.md`
 only when no `CLAUDE.md` exists, so adding one would hide everything here.
@@ -54,7 +54,7 @@ node dev/mcp-stdio.ts           # stdio→HTTP MCP forwarder for stdio-only clie
 - `delete` is a reserved word: write a DELETE handler as a named function and export it with
   `export { handleDelete as delete }`.
 - `lib/mcp.ts`, `lib/access.ts`, `lib/cards.ts`, `lib/shape.ts`, `lib/content-shape.ts`,
-  `lib/node-shape.ts`, `lib/schedule.ts` and `lib/config.ts` stay free of `/lib/xp/*` imports so tests and the dev
+  `lib/node-shape.ts`, `lib/schedule.ts`, `lib/oauth.ts` and `lib/config.ts` stay free of `/lib/xp/*` imports so tests and the dev
   mock can load them directly. Tests reach the other server modules through the `/lib/xp/*`
   stubs aliased in `vite.config.ts`.
   `lib/shape.ts` holds what the content and node tools share (cursors, dot paths, projection),
@@ -204,6 +204,13 @@ server's tools in `src/test/apis/mcp.test.ts`, so a new tool goes into both.
     `ui/resourceUri`, and ChatGPT's `openai/outputTemplate`.
   - `ToolAnnotations` requires `readOnlyHint`, `destructiveHint` and `openWorldHint`, which
     ChatGPT lists as required; it treats a tool without `readOnlyHint` as a write.
+  - **OAuth discovery** (`apis/oauth`): `deny()` adds `resource_metadata` to the 401 challenge,
+    and the API's `well-known` GET serves RFC 9728 and RFC 8414 metadata, which the root
+    `/.well-known` reaches only through a vhost mapping. `lib/oauth.ts` builds every URL from the
+    request origin (`originOf`) and the fixed `/api/<app>:mcp` and `/api/<app>:oauth` paths.
+    `ENDPOINTS` lists what the API serves, and nothing is published (challenge, either document)
+    until `oauth.enabled` is on and it holds `authorize` and `token`: the MCP spec requires the
+    resource metadata to name an authorization server, and none may be advertised before it works.
   - `node_create` must pass `_inheritsPermissions: true`: without it lib-node grants admins
     everything and `role:system.everyone` READ.
 

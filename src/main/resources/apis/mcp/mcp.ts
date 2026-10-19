@@ -5,7 +5,7 @@ import type { Request, Response } from '@enonic-types/core';
 
 import { checkAccess, originOf, type Rejection } from '../../lib/access';
 import { cardResources, withCards } from '../../lib/cards';
-import { getMcpConfig, type ToolsConfig } from '../../lib/config';
+import { getMcpConfig, getOauthConfig, type ToolsConfig } from '../../lib/config';
 import { authenticate, isAdmin } from '../../lib/keys';
 import {
   handle,
@@ -16,6 +16,7 @@ import {
   type UiResource,
 } from '../../lib/mcp';
 import { createNodeTools } from '../../lib/node-tools';
+import { bearerChallenge, ENDPOINTS, publishesDiscovery } from '../../lib/oauth';
 import { userKey } from '../../lib/run-as';
 import { createContentTools, serverInstructions } from '../../lib/tools';
 import { ADMIN_ROLE, createWorkflowTools, WORKFLOWS_TOOLSET } from '../../lib/workflow-tools';
@@ -33,7 +34,7 @@ function toResponse({ status, body }: HttpReply): Response {
 
 // On the default port XP turns a 401, and an anonymous 403, into its login page, so the reason
 // only reaches the log.
-function deny(req: Request, rejection: Rejection): Response {
+function deny(req: Request, rejection: Rejection, origin: string): Response {
   log.warning(`MCP request from ${req.remoteAddress} rejected: ${rejection.reason}`);
   if (rejection.status !== 401) {
     return toResponse({
@@ -44,7 +45,11 @@ function deny(req: Request, rejection: Rejection): Response {
   return {
     status: 401,
     contentType: 'application/json',
-    headers: { 'WWW-Authenticate': 'Bearer' },
+    headers: {
+      'WWW-Authenticate': publishesDiscovery(getOauthConfig().enabled, ENDPOINTS)
+        ? bearerChallenge(origin, app.name)
+        : 'Bearer',
+    },
     body: JSON.stringify({ status: 401, message: 'Unauthorized', code: 'UNAUTHORIZED' }),
   };
 }
@@ -107,7 +112,7 @@ export function post(req: Request): Response {
     },
     getMcpConfig(),
   );
-  if ('rejection' in access) return deny(req, access.rejection);
+  if ('rejection' in access) return deny(req, access.rejection, origin);
   const { config } = access;
   if (config.credential === 'token') warnSharedToken(config);
 

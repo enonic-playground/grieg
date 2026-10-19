@@ -1,0 +1,8 @@
+kind: 'API'
+title: 'OAuth API'
+description: 'OAuth discovery for MCP connectors'
+# Public by descriptor: a client reads the metadata before it holds any credential.
+allow:
+  - 'role:system.everyone'
+mount:
+  - 'web'
