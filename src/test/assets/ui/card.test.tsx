@@ -6,6 +6,8 @@ import { describe, expect, it, vi } from 'vitest';
 
 import type { CardHost } from '../../../main/resources/assets/ui/host';
 import type {
+  ContentSummary,
+  ContentType,
   CronJob,
   JsonObject,
   RunDetail,
@@ -109,6 +111,53 @@ function hit(name: string): ToolResults['node_query']['hits'][number] {
 }
 
 const NODE_ARGS = { repo: 'com.example.catalog', branch: 'master', count: 2 };
+
+const EDIT = 'http://localhost:8080/admin/cs/main/default/edit';
+
+function contentHit(name: string, overrides: Partial<ContentSummary> = {}): ContentSummary {
+  return {
+    id: `c-${name}`,
+    name,
+    path: `/site/articles/${name}`,
+    displayName: `Article ${name}`,
+    type: 'com.example.news:article',
+    language: 'en',
+    modifiedTime: '2026-10-17T14:20:00Z',
+    modifier: 'user:system:ingrid',
+    workflowState: 'READY',
+    valid: true,
+    hasChildren: false,
+    editUrl: `${EDIT}/c-${name}`,
+    ...overrides,
+  };
+}
+
+const ARTICLE_TYPE: ContentType = {
+  name: 'com.example.news:article',
+  displayName: 'Article',
+  description: 'A blog article',
+  superType: 'base:structured',
+  abstract: false,
+  allowChildContent: true,
+  form: [
+    {
+      path: 'category',
+      kind: 'input',
+      label: 'Category',
+      inputType: 'ComboBox',
+      occurrences: { min: 1, max: 1 },
+      config: { config: { option: [{ '@value': 'guide', value: 'Guide' }] } },
+    },
+    { path: 'author', kind: 'itemSet', label: 'Author', occurrences: { min: 0, max: 0 } },
+    {
+      path: 'author.name',
+      kind: 'input',
+      label: 'Name',
+      inputType: 'TextLine',
+      occurrences: { min: 0, max: 1 },
+    },
+  ],
+};
 
 type FakeHost = { [K in keyof CardHost]: ReturnType<typeof vi.fn> };
 
@@ -434,6 +483,189 @@ describe('nodes card', () => {
       count: 20,
     });
     expect(await screen.findByText('No nodes match.')).toBeInTheDocument();
+  });
+});
+
+describe('content card', () => {
+  it('should list hits with type, language, state and parent path', () => {
+    renderCard(
+      {
+        total: 2,
+        start: 0,
+        count: 2,
+        hits: [
+          contentHit('a'),
+          contentHit('b', { language: 'nb', workflowState: 'IN_PROGRESS', valid: false }),
+        ],
+      },
+      { text: 'coffee' },
+    );
+
+    expect(screen.getByRole('heading', { name: 'Content' })).toBeInTheDocument();
+    expect(screen.getByText('2 items · "coffee"')).toBeInTheDocument();
+    const [first, second] = screen.getAllByRole('listitem');
+    expect(within(first).getByText('Article a')).toBeInTheDocument();
+    expect(within(first).getByText('com.example.news:article')).toBeInTheDocument();
+    expect(within(first).getByText('Ready')).toBeInTheDocument();
+    expect(within(first).getByText('site › articles')).toBeInTheDocument();
+    expect(within(second).getByText('nb')).toBeInTheDocument();
+    expect(within(second).getByText('In progress')).toBeInTheDocument();
+    expect(within(second).getByText('Invalid')).toBeInTheDocument();
+  });
+
+  it('should page with the cursor in place of start and append the hits', async () => {
+    const { host, user } = renderCard(
+      { total: 3, start: 0, count: 2, hits: [contentHit('a'), contentHit('b')], nextCursor: 'c2' },
+      { path: '/site/articles', start: 0, count: 2 },
+    );
+    host.callTool.mockResolvedValue({
+      ok: true,
+      data: { total: 3, start: 2, count: 1, hits: [contentHit('c')] },
+    });
+
+    await user.click(screen.getByRole('button', { name: 'Show more (1 left)' }));
+
+    expect(host.callTool).toHaveBeenCalledWith('content_search', {
+      path: '/site/articles',
+      count: 2,
+      cursor: 'c2',
+    });
+    expect(await screen.findByText('Article c')).toBeInTheDocument();
+    expect(screen.getAllByRole('listitem')).toHaveLength(3);
+    expect(screen.queryByRole('button', { name: /Show more/ })).not.toBeInTheDocument();
+  });
+
+  it('should browse the children of a folder hit', async () => {
+    const folder = contentHit('archive', {
+      type: 'base:folder',
+      displayName: 'Archive',
+      hasChildren: true,
+    });
+    const unknown = contentHit('maybe', { displayName: 'Maybe', hasChildren: null });
+    const { host, user } = renderCard({ total: 2, start: 0, count: 2, hits: [folder, unknown] });
+    expect(screen.queryByRole('button', { name: 'Browse Maybe' })).not.toBeInTheDocument();
+    host.callTool.mockResolvedValue({
+      ok: true,
+      data: { total: 0, start: 0, count: 0, hits: [] },
+    });
+
+    await user.click(screen.getByRole('button', { name: 'Browse Archive' }));
+
+    expect(host.callTool).toHaveBeenCalledWith('content_search', {
+      path: '/site/articles/archive',
+      count: 20,
+    });
+    expect(await screen.findByText('No content matches.')).toBeInTheDocument();
+  });
+
+  it('should drill from a hit to the item through content_get', async () => {
+    const { host, user } = renderCard({ total: 1, start: 0, count: 1, hits: [contentHit('a')] });
+    host.callTool.mockResolvedValue({
+      ok: true,
+      data: {
+        ...contentHit('a'),
+        owner: 'user:system:ingrid',
+        createdTime: '2026-03-01T08:00:00Z',
+        publishedTime: null,
+        data: { title: 'Pour-over', author: { name: 'Ingrid Berg' }, tags: ['brewing'] },
+      },
+    });
+
+    await user.click(screen.getByRole('button', { name: 'Open /site/articles/a' }));
+
+    expect(host.callTool).toHaveBeenCalledWith('content_get', { key: 'c-a' });
+    expect(await screen.findByRole('heading', { name: 'Article a' })).toBeInTheDocument();
+    expect(screen.getByText('Pour-over')).toBeInTheDocument();
+    expect(screen.getByText('Ingrid Berg')).toBeInTheDocument();
+    expect(screen.getByText('brewing')).toBeInTheDocument();
+    expect(screen.getByText('Owner ingrid')).toBeInTheDocument();
+    expect(screen.queryByText(/Published/)).not.toBeInTheDocument();
+
+    // The card opens no URL taken from tool data, editUrl included.
+    expect(screen.queryByRole('button', { name: /^Open in/ })).not.toBeInTheDocument();
+  });
+
+  it('should open the content type and a parent folder from an item', async () => {
+    const { host, user } = renderCard({ ...contentHit('a'), data: {} });
+    host.callTool.mockResolvedValueOnce({ ok: true, data: ARTICLE_TYPE });
+
+    await user.click(screen.getByRole('button', { name: 'Content type com.example.news:article' }));
+
+    expect(host.callTool).toHaveBeenCalledWith('content_type_get', {
+      name: 'com.example.news:article',
+    });
+    expect(await screen.findByRole('heading', { name: 'Article' })).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Back' }));
+    host.callTool.mockResolvedValueOnce({
+      ok: true,
+      data: { total: 0, start: 0, count: 0, hits: [] },
+    });
+    await user.click(screen.getByRole('button', { name: 'site' }));
+
+    expect(host.callTool).toHaveBeenLastCalledWith('content_search', { path: '/site', count: 20 });
+  });
+
+  it('should count what is left after the page the search started at', () => {
+    renderCard({ total: 100, start: 80, count: 10, hits: [contentHit('a')], nextCursor: 'c81' });
+
+    expect(screen.getByRole('button', { name: 'Show more (19 left)' })).toBeInTheDocument();
+  });
+
+  it('should title an item opened from a hit without a display name by its name', async () => {
+    const { host, user } = renderCard({
+      total: 1,
+      start: 0,
+      count: 1,
+      hits: [contentHit('a', { displayName: '' })],
+    });
+    host.callTool.mockResolvedValue({
+      ok: true,
+      data: { ...contentHit('a', { displayName: '' }) },
+    });
+
+    await user.click(screen.getByRole('button', { name: 'Open /site/articles/a' }));
+
+    expect(await screen.findByRole('heading', { name: 'a' })).toBeInTheDocument();
+  });
+
+  it('should title an item without a display name by its name', () => {
+    renderCard({ ...contentHit('a'), displayName: '', data: {} });
+
+    expect(screen.getByRole('heading', { name: 'a' })).toBeInTheDocument();
+  });
+
+  it('should separate only the dates an item has', () => {
+    renderCard({
+      ...contentHit('a'),
+      modifiedTime: null,
+      createdTime: '2026-03-01T08:00:00Z',
+      publishedTime: '2026-03-02T08:00:00Z',
+    });
+
+    const line = screen.getByText(/^Created/).closest('div');
+    expect(line?.textContent).toMatch(/^Created [^·]+·Published [^·]+$/);
+  });
+
+  it('should render field values as text, never as markup', () => {
+    renderCard({ ...contentHit('a'), data: { body: '<img src=x onerror="alert(1)">' } });
+
+    expect(screen.getByText('<img src=x onerror="alert(1)">')).toBeInTheDocument();
+    expect(document.querySelector('img')).toBeNull();
+  });
+
+  it("should list a content type's fields with type, occurrences and options", () => {
+    renderCard(ARTICLE_TYPE);
+
+    expect(screen.getByText('com.example.news:article')).toBeInTheDocument();
+    const [category, author, name] = screen.getAllByRole('listitem');
+    expect(within(category).getByText('ComboBox')).toBeInTheDocument();
+    expect(within(category).getByText('Required')).toBeInTheDocument();
+    expect(within(category).getByText('Guide')).toBeInTheDocument();
+    expect(within(author).getByText('Item set')).toBeInTheDocument();
+    expect(within(author).getByText('Any number')).toBeInTheDocument();
+    expect(within(name).getByText('author.name')).toBeInTheDocument();
+    expect(within(name).getByText('Optional')).toBeInTheDocument();
   });
 });
 

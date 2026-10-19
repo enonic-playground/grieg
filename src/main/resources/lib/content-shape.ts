@@ -376,6 +376,21 @@ export function toSummary(
   };
 }
 
+// What content_get adds to a summary; search hits stay without it.
+export type Detail = {
+  owner: string | null;
+  createdTime: string | null;
+  publishedTime: string | null;
+};
+
+export function toDetail(content: Content): Detail {
+  return {
+    owner: content.owner ?? null,
+    createdTime: content.createdTime ?? null,
+    publishedTime: content.publish?.first ?? null,
+  };
+}
+
 export function limitSubtree(name: Subtree, value: unknown): unknown {
   const json = JSON.stringify(value ?? null);
   if (json.length <= SUBTREE_BUDGET) return value ?? null;

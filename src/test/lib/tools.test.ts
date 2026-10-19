@@ -203,11 +203,18 @@ describe('content_search', () => {
 
 describe('content_get', () => {
   it('should return the summary plus the requested subtrees', () => {
-    get.mockReturnValue(item());
+    get.mockReturnValue(item({ owner: 'user:system:owner' }));
 
     const result = value(tool('content_get').handler({ key: 'id-1' }));
 
-    expect(result).toMatchObject({ id: 'id-1', path: '/site/hello', data: { title: 'Hello' } });
+    expect(result).toMatchObject({
+      id: 'id-1',
+      path: '/site/hello',
+      owner: 'user:system:owner',
+      createdTime: '2026-01-01T00:00:00Z',
+      publishedTime: null,
+      data: { title: 'Hello' },
+    });
     expect(result).not.toHaveProperty('x');
   });
 

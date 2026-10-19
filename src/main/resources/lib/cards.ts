@@ -26,6 +26,11 @@ const CARD_VIEWS = {
     description: 'Node query results, one node, or the readable repositories',
     tools: ['node_query', 'node_get', 'node_repos'],
   },
+  content: {
+    title: 'Content',
+    description: 'Content search results, one content item, or a content type form',
+    tools: ['content_search', 'content_get', 'content_type_get'],
+  },
 } as const;
 
 export type CardView = keyof typeof CARD_VIEWS;

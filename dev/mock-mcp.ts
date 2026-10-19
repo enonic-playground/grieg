@@ -8,11 +8,12 @@ import type { Plugin } from 'vite-plus';
 import { stampView, type CardView } from '../src/main/resources/lib/cards.ts';
 import { scheduleName } from '../src/main/resources/lib/schedule.ts';
 import { advance, cronJobs, runs, workflows, type MockRun } from './mock-api.ts';
+import { getContent, getContentType, searchContent } from './mock-content.ts';
 
 // The read tools a card calls, answered from the mock API's in-memory state in the shapes
-// lib/workflow-tools.ts and lib/node-tools.ts return. Writes are left to Claude, as in a host.
-// With GRIEG_MCP_TOKEN set, every call goes to a running XP instead (GRIEG_XP_URL, default
-// http://localhost:8080), so a card renders live data; the token stays in this process.
+// lib/workflow-tools.ts, lib/node-tools.ts and lib/tools.ts return. Writes are left to Claude,
+// as in a host. With GRIEG_MCP_TOKEN set, every call goes to a running XP instead (GRIEG_XP_URL,
+// default http://localhost:8080), so a card renders live data; the token stays in this process.
 
 const CARD_FILE = path.join(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -21,7 +22,7 @@ const CARD_FILE = path.join(
 const CARD_PREFIX = '/dev-card/';
 const MCP_PATH = '/dev-mcp';
 const ADMIN_TOOL = 'http://localhost:8080/admin/tool/com.enonic.app.grieg/main';
-const CARD_VIEWS: CardView[] = ['workflows', 'runs', 'crons', 'nodes'];
+const CARD_VIEWS: CardView[] = ['workflows', 'runs', 'crons', 'nodes', 'content'];
 const LIVE_TOKEN = process.env.GRIEG_MCP_TOKEN;
 const LIVE_ENDPOINT = `${process.env.GRIEG_XP_URL ?? 'http://localhost:8080'}/api/com.enonic.app.grieg:mcp`;
 
@@ -245,6 +246,17 @@ const READ_TOOLS: Record<string, (args: Json) => ToolResult> = {
     const node = findNode(key);
     if (node == null) return fail(`No node at \`${String(key)}\`. Use node_query to find it.`);
     return ok({ ...nodeSummary(node), data: node.data });
+  },
+  content_search: (args) => ok(searchContent(args)),
+  content_get: ({ key }) => {
+    const content = getContent(key);
+    return content == null
+      ? fail(`No content at \`${String(key)}\`. Use content_search to find it.`)
+      : ok(content);
+  },
+  content_type_get: ({ name }) => {
+    const type = getContentType(name);
+    return type == null ? fail(`No content type \`${String(name)}\`.`) : ok(type);
   },
 };
 

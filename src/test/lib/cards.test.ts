@@ -45,6 +45,7 @@ describe('cardResources', () => {
       'ui://grieg/runs',
       'ui://grieg/crons',
       'ui://grieg/nodes',
+      'ui://grieg/content',
     ]);
     expect(resources[2]).toEqual({
       uri: 'ui://grieg/crons',
@@ -57,11 +58,14 @@ describe('cardResources', () => {
     });
   });
 
-  it.each(['workflows', 'runs', 'crons', 'nodes'])('should stamp the %s view', (view) => {
-    const resource = cardResources(HTML).find(({ uri }) => uri === `ui://grieg/${view}`);
+  it.each(['workflows', 'runs', 'crons', 'nodes', 'content'])(
+    'should stamp the %s view',
+    (view) => {
+      const resource = cardResources(HTML).find(({ uri }) => uri === `ui://grieg/${view}`);
 
-    expect(resource?.text).toContain(`<html data-view="${view}" lang="en">`);
-  });
+      expect(resource?.text).toContain(`<html data-view="${view}" lang="en">`);
+    },
+  );
 });
 
 describe('withCards', () => {
@@ -77,6 +81,10 @@ describe('withCards', () => {
       'node_get',
       'node_repos',
       'content_search',
+      'content_get',
+      'content_type_get',
+      'content_create',
+      'content_update',
     ];
 
     const linked = Object.fromEntries(
@@ -93,7 +101,11 @@ describe('withCards', () => {
       node_query: 'ui://grieg/nodes',
       node_get: 'ui://grieg/nodes',
       node_repos: 'ui://grieg/nodes',
-      content_search: undefined,
+      content_search: 'ui://grieg/content',
+      content_get: 'ui://grieg/content',
+      content_type_get: 'ui://grieg/content',
+      content_create: undefined,
+      content_update: undefined,
     });
   });
 });

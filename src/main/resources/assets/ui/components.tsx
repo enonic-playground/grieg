@@ -1,8 +1,10 @@
 import { CircleCheck, CircleDashed, CircleX, LoaderCircle } from 'lucide-react';
+import { useState } from 'react';
 
 import type { RunStatus } from './shapes';
 import type { ComponentProps, ReactElement, ReactNode } from 'react';
 
+import { Button } from '../js/components/ui/button';
 import { cn } from '../js/lib/utils';
 
 const RUN_STATUS: Record<RunStatus, { label: string; className: string; icon: ReactElement }> = {
@@ -113,6 +115,23 @@ export const Mono = ({ className, ...props }: ComponentProps<'span'>): ReactElem
 export const Empty = ({ children }: { children: ReactNode }): ReactElement => (
   <p className="text-muted-foreground px-4 py-6 text-center text-sm">{children}</p>
 );
+
+type ShowMoreProps = { left: number; onMore: () => Promise<void> };
+
+export const ShowMore = ({ left, onMore }: ShowMoreProps): ReactElement => {
+  const [loading, setLoading] = useState(false);
+  const more = () => {
+    setLoading(true);
+    void onMore().finally(() => setLoading(false));
+  };
+  return (
+    <div className="flex justify-center p-2">
+      <Button size="sm" variant="ghost" disabled={loading} onClick={more}>
+        {loading ? 'Loading…' : `Show more (${left} left)`}
+      </Button>
+    </div>
+  );
+};
 
 export const SectionLabel = ({ children }: { children: ReactNode }): ReactElement => (
   <h3 className="text-dimmed px-4 pt-3 pb-1 text-[11px] font-semibold tracking-wider uppercase">
