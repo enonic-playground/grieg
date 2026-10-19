@@ -168,11 +168,19 @@ const READ_TOOLS: Record<string, (args: Json) => ToolResult> = {
     return ok({ workflowId: id, runs: runsOf(id).map(summary), adminUrl: adminUrl(id) });
   },
   run_get: ({ workflowId, runId }) => {
+    const workflow = workflows.find((candidate) => candidate.id === workflowId);
     const run = runsOf(String(workflowId)).find((candidate) => candidate.id === runId);
-    if (run == null) return fail(`No run ${String(runId)} of workflow ${String(workflowId)}.`);
+    if (workflow == null || run == null) {
+      return fail(`No run ${String(runId)} of workflow ${String(workflowId)}.`);
+    }
     return ok({
       ...summary(run),
       workflowId: run.workflowId,
+      workflow: {
+        displayName: workflow.displayName,
+        stepIds: workflow.steps.map((step) => step.id),
+        modifiedAt: workflow.modifiedAt,
+      },
       taskId: run.taskId ?? null,
       steps: run.steps.map((step) => ({
         id: step.id,

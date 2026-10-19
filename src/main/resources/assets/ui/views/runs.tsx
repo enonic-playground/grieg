@@ -1,9 +1,13 @@
-import { useEffect } from 'react';
+import { LoaderCircle } from 'lucide-react';
+import { useEffect, useState } from 'react';
 
-import type { RunDetail, RunStep, ToolResults } from '../shapes';
+import type { TimelineState, TimelineStep } from '../../js/lib/timeline';
+import type { RunDetail, ToolResults } from '../shapes';
 import type { ReactElement } from 'react';
 
-import { dateTime, duration, elapsed, relativeTime, shortUser } from '../../js/lib/format';
+import { counter, dateTime, duration, elapsed, relativeTime, shortUser } from '../../js/lib/format';
+import { runTimeline } from '../../js/lib/timeline';
+import { useElapsed } from '../../js/lib/use-elapsed';
 import { cn } from '../../js/lib/utils';
 import { useCard } from '../card-context';
 import { Dot, Empty, Meta, Row, RunStatusLabel, SectionLabel, Tag } from '../components';
@@ -87,33 +91,98 @@ const Output = ({
   </>
 );
 
-const StepItem = ({ step, index, last }: { step: RunStep; index: number; last: boolean }) => {
-  const failed = step.error != null;
+const MARKER_CLASSES: Record<TimelineState, string> = {
+  done: 'bg-success-subtle text-success',
+  failed: 'bg-danger-subtle text-danger',
+  running: 'bg-info-subtle text-info',
+  pending: 'border border-dashed text-dimmed',
+  skipped: 'bg-muted text-dimmed',
+};
+
+const STATE_LABELS: Record<TimelineState, string> = {
+  done: 'Done',
+  failed: 'Failed',
+  running: 'Running',
+  pending: 'Waiting',
+  skipped: 'Not run',
+};
+
+const Clock = ({ since }: { since: number }): ReactElement => (
+  <span className="tabular-nums">{counter(useElapsed(since))}</span>
+);
+
+const RunningFor = ({ since }: { since: number }): ReactElement => (
+  <span className="text-info">
+    {STATE_LABELS.running} · <Clock since={since} />
+  </span>
+);
+
+type StepItemProps = { step: TimelineStep; index: number; last: boolean; final: boolean };
+
+const StepItem = ({ step, index, last, final }: StepItemProps): ReactElement => {
+  // A step that finishes on screen, or turns out to hold the run's result, opens.
+  const [open, setOpen] = useState(step.state !== 'done' || final);
+  const [wasFinal, setWasFinal] = useState(final);
+  if (final !== wasFinal) {
+    setWasFinal(final);
+    if (final) setOpen(true);
+  }
+  const finished = step.state === 'done' || step.state === 'failed';
+  const name = (
+    <span
+      className={cn(
+        'truncate font-mono text-xs font-medium',
+        !finished && step.state !== 'running' && 'text-dimmed',
+      )}
+    >
+      {step.id}
+    </span>
+  );
+
   return (
-    <li className="relative pb-3 pl-7 last:pb-0">
+    <li data-step={step.id} data-state={step.state} className="relative pb-3 pl-7 last:pb-0">
       {!last && <span aria-hidden className="bg-border absolute top-5 bottom-0 left-[9px] w-px" />}
       <span
         aria-hidden
         className={cn(
           'absolute top-0.5 left-0 flex size-[19px] items-center justify-center rounded-full text-[10px] font-semibold',
-          failed ? 'bg-danger-subtle text-danger' : 'bg-success-subtle text-success',
+          MARKER_CLASSES[step.state],
         )}
       >
-        {index + 1}
-      </span>
-      <details open={failed}>
-        <summary className="hover:text-foreground flex cursor-pointer list-none items-center gap-2 [&::-webkit-details-marker]:hidden">
-          <span className="truncate font-mono text-xs font-medium">{step.id}</span>
-          <span className="text-dimmed ml-auto shrink-0 text-xs tabular-nums">
-            {duration(step.ms)}
-          </span>
-        </summary>
-        {failed ? (
-          <Output text={step.error ?? ''} error />
+        {step.state === 'running' ? (
+          <LoaderCircle className="size-3 motion-safe:animate-spin" />
         ) : (
-          step.output != null && <Output text={step.output} truncated={step.truncated} />
+          index + 1
         )}
-      </details>
+      </span>
+      {finished ? (
+        <details open={open} onToggle={(event) => setOpen(event.currentTarget.open)}>
+          <summary className="hover:text-foreground flex cursor-pointer list-none items-center gap-2 [&::-webkit-details-marker]:hidden">
+            {name}
+            <span className="text-dimmed ml-auto shrink-0 text-xs tabular-nums">
+              {step.ms != null && duration(step.ms)}
+            </span>
+          </summary>
+          <div className="motion-safe:animate-fade-in">
+            {step.state === 'failed' ? (
+              <Output text={step.error ?? ''} error />
+            ) : (
+              step.output != null && <Output text={step.output} truncated={step.truncated} />
+            )}
+          </div>
+        </details>
+      ) : (
+        <div className="flex items-center gap-2">
+          {name}
+          <span className="text-dimmed ml-auto shrink-0 text-xs">
+            {step.state === 'running' && step.since != null ? (
+              <RunningFor since={step.since} />
+            ) : (
+              STATE_LABELS[step.state]
+            )}
+          </span>
+        </div>
+      )}
     </li>
   );
 };
@@ -142,6 +211,9 @@ export const RunDetailView = ({ data }: { data: RunDetail }): ReactElement => {
   const { locale } = useCard();
   usePolling(data);
   const took = elapsed(data.startedAt, data.finishedAt);
+  const steps = runTimeline(data, data.workflow);
+  const finished = data.status !== 'running';
+  const lastRecorded = data.steps.length - 1;
   // A run that failed in a step says `Step <id> failed: <error>`, which the step already shows.
   const runError = data.steps.some(
     (step) => step.error != null && data.error?.endsWith(step.error) === true,
@@ -164,6 +236,12 @@ export const RunDetailView = ({ data }: { data: RunDetail }): ReactElement => {
               <span>{took}</span>
             </>
           )}
+          {data.status === 'running' && (
+            <>
+              <Dot />
+              <Clock since={Date.parse(data.startedAt)} />
+            </>
+          )}
           <Dot />
           <span title={data.user}>as {shortUser(data.user)}</span>
         </Meta>
@@ -171,18 +249,19 @@ export const RunDetailView = ({ data }: { data: RunDetail }): ReactElement => {
       </div>
 
       <SectionLabel>Steps</SectionLabel>
-      {data.steps.length === 0 ? (
+      {steps.length === 0 ? (
         <p className="text-muted-foreground px-4 text-xs">
           {data.status === 'running' ? 'Waiting for the first step…' : 'No steps ran.'}
         </p>
       ) : (
         <ol className="px-4">
-          {data.steps.map((step, index) => (
+          {steps.map((step, index) => (
             <StepItem
               key={`${step.id}-${index}`}
               step={step}
               index={index}
-              last={index === data.steps.length - 1}
+              last={index === steps.length - 1}
+              final={finished && index === lastRecorded}
             />
           ))}
         </ol>

@@ -89,7 +89,7 @@ export type MockRun = {
 };
 
 // Each mock step "takes" this long, so a run stays `running` long enough to watch it poll.
-const MOCK_STEP_MS = 1500;
+const MOCK_STEP_MS = 5000;
 const MAX_RUNS = 20;
 
 // The steps each run started with, so saving a workflow mid-run does not change the run.

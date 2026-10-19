@@ -2,7 +2,7 @@
 
 import { act, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { CardHost } from '../../../main/resources/assets/ui/host';
 import type {
@@ -69,6 +69,11 @@ const RUN: RunDetail = {
   finishedAt: '2026-09-11T02:00:08Z',
   error: 'Step summary failed: Vertex AI returned 429',
   workflowId: 'wf-1',
+  workflow: {
+    displayName: 'Weekly digest',
+    stepIds: ['outline', 'summary', 'polish'],
+    modifiedAt: '2026-09-10T08:12:00Z',
+  },
   taskId: null,
   steps: [
     { id: 'outline', ms: 1710, output: 'x'.repeat(4000), error: null, truncated: true },
@@ -169,8 +174,10 @@ function renderCard(data: unknown, args: JsonObject = {}, host = fakeHost()) {
   const initial = toScreen(data, args);
   if (initial == null) throw new Error('fixture has no card');
   const user = userEvent.setup();
-  render(<Card host={host as unknown as CardHost} locale="en-US" initial={initial} />);
-  return { host, user };
+  const { unmount } = render(
+    <Card host={host as unknown as CardHost} locale="en-US" initial={initial} />,
+  );
+  return { host, user, unmount };
 }
 
 describe('workflows card', () => {
@@ -331,6 +338,155 @@ describe('runs card', () => {
 
     expect(screen.getByText('<img src=x onerror="alert(1)">')).toBeInTheDocument();
     expect(document.querySelector('img')).toBeNull();
+  });
+});
+
+const RUNNING: RunDetail = {
+  ...RUN,
+  id: 'run-3',
+  status: 'running',
+  startedAt: '2026-10-15T10:00:00.000Z',
+  finishedAt: null,
+  error: null,
+  steps: [{ id: 'outline', ms: 2000, output: 'Points', error: null }],
+};
+
+function stepStates(): (string | undefined)[][] {
+  return screen.getAllByRole('listitem').map((item) => [item.dataset.step, item.dataset.state]);
+}
+
+describe('runs card timeline', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it('should show done, running and waiting steps of a running run', () => {
+    vi.useFakeTimers({ now: Date.parse('2026-10-15T10:00:05.000Z') });
+    renderCard(RUNNING);
+
+    expect(stepStates()).toEqual([
+      ['outline', 'done'],
+      ['summary', 'running'],
+      ['polish', 'pending'],
+    ]);
+    const running = () => screen.getAllByRole('listitem')[1];
+    expect(running()).toHaveTextContent('Running · 3 s');
+    expect(screen.getByText('Waiting')).toBeInTheDocument();
+    expect(screen.getByText('5 s')).toBeInTheDocument();
+
+    act(() => vi.advanceTimersByTime(2000));
+
+    expect(running()).toHaveTextContent('Running · 5 s');
+    expect(screen.getByText('7 s')).toBeInTheDocument();
+  });
+
+  it('should spin only for users who allow motion', () => {
+    renderCard(RUNNING);
+
+    const spinners = document.querySelectorAll('svg.lucide-loader-circle');
+    expect(spinners).toHaveLength(2);
+    for (const spinner of spinners) {
+      expect(spinner.getAttribute('class')).toContain('motion-safe:animate-spin');
+      expect(spinner.getAttribute('class')).not.toMatch(/(^| )animate-spin/);
+    }
+  });
+
+  it('should mark the steps after a failed one as not run', () => {
+    renderCard(RUN);
+
+    expect(stepStates()).toEqual([
+      ['outline', 'done'],
+      ['summary', 'failed'],
+      ['polish', 'skipped'],
+    ]);
+    expect(screen.getByText('Not run')).toBeInTheDocument();
+  });
+
+  it('should show only the steps a run recorded once its workflow changed', () => {
+    renderCard({
+      ...RUNNING,
+      workflow: { ...RUNNING.workflow, modifiedAt: '2026-10-15T10:00:01Z' },
+    });
+
+    expect(stepStates()).toEqual([['outline', 'done']]);
+  });
+
+  it('should poll every 3 s, open each step as it finishes and stop on a final status', async () => {
+    vi.useFakeTimers({ now: Date.parse('2026-10-15T10:00:05.000Z') });
+    const { host } = renderCard(RUNNING);
+    const second = { id: 'summary', ms: 3000, output: 'Short summary', error: null };
+    host.callTool
+      .mockResolvedValueOnce({ ok: true, data: { ...RUNNING, steps: [...RUNNING.steps, second] } })
+      .mockResolvedValue({
+        ok: true,
+        data: {
+          ...RUNNING,
+          status: 'done',
+          finishedAt: '2026-10-15T10:00:09.000Z',
+          steps: [
+            ...RUNNING.steps,
+            second,
+            { id: 'polish', ms: 1000, output: 'Final text', error: null },
+          ],
+          output: 'Final text',
+        },
+      });
+
+    await act(() => vi.advanceTimersByTimeAsync(2999));
+    expect(host.callTool).not.toHaveBeenCalled();
+    await act(() => vi.advanceTimersByTimeAsync(1));
+    expect(host.callTool).toHaveBeenCalledWith('run_get', { workflowId: 'wf-1', runId: 'run-3' });
+
+    const summary = screen.getByText('summary').closest('details');
+    expect(summary).toHaveAttribute('open');
+    expect(within(summary as HTMLElement).getByText('Short summary').parentElement).toHaveClass(
+      'motion-safe:animate-fade-in',
+    );
+    expect(screen.getByText('outline').closest('details')).not.toHaveAttribute('open');
+
+    await act(() => vi.advanceTimersByTimeAsync(3000));
+    expect(stepStates().map(([, state]) => state)).toEqual(['done', 'done', 'done']);
+    expect(screen.getByText('polish').closest('details')).toHaveAttribute('open');
+
+    await act(() => vi.advanceTimersByTimeAsync(30_000));
+    expect(host.callTool).toHaveBeenCalledTimes(2);
+  });
+
+  it('should open a step that was already done once the run finishes on it', async () => {
+    vi.useFakeTimers({ now: Date.parse('2026-10-15T10:00:05.000Z') });
+    const edited = {
+      ...RUNNING,
+      workflow: { ...RUNNING.workflow, modifiedAt: '2026-10-15T10:00:01Z' },
+    };
+    const { host } = renderCard(edited);
+    host.callTool.mockResolvedValue({
+      ok: true,
+      data: { ...edited, status: 'done', finishedAt: '2026-10-15T10:00:06Z', output: 'Points' },
+    });
+    expect(screen.getByText('outline').closest('details')).not.toHaveAttribute('open');
+
+    await act(() => vi.advanceTimersByTimeAsync(3000));
+
+    expect(screen.getByText('outline').closest('details')).toHaveAttribute('open');
+  });
+
+  it('should not poll while the card is hidden or after it is gone', async () => {
+    vi.useFakeTimers();
+    const visibility = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden');
+    const { host, unmount } = renderCard(RUNNING);
+    host.callTool.mockResolvedValue({ ok: true, data: RUNNING });
+
+    await act(() => vi.advanceTimersByTimeAsync(9000));
+    expect(host.callTool).not.toHaveBeenCalled();
+
+    visibility.mockReturnValue('visible');
+    await act(() => vi.advanceTimersByTimeAsync(3000));
+    expect(host.callTool).toHaveBeenCalledTimes(1);
+
+    unmount();
+    await act(() => vi.advanceTimersByTimeAsync(9000));
+    expect(host.callTool).toHaveBeenCalledTimes(1);
   });
 });
 

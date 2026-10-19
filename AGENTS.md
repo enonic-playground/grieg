@@ -71,7 +71,10 @@ The `ui` target builds the MCP Apps card from `assets/ui/` into one self-contain
 `build/resources/main/ui/card.html`, with `vite-plugin-singlefile`. It sits outside `assets/`
 so XP never serves it, and `processResources` skips `assets/ui/**`. The card reuses the admin
 `Button` and `cn`, and shares the date, duration and user formatting (`js/lib/format.ts`) and
-`describeCron` (`js/lib/cron.ts`) with the admin app, so both say a value the same way. It maps
+`describeCron` (`js/lib/cron.ts`) with the admin app, so both say a value the same way. Both
+draw a run's steps from `runTimeline()` (`js/lib/timeline.ts`). A run records only the steps it
+finished, so the waiting ones come from the workflow's current steps, and only while the
+workflow is unchanged since the run started; the card gets the workflow from `run_get`. It maps
 the admin token names onto the host's MCP Apps style variables in `card.css`, so it follows the
 host theme. All values render as React text: no `dangerouslySetInnerHTML`, no URLs or images
 from data, no network.

@@ -371,6 +371,85 @@ describe('WorkflowPage', () => {
     expect(within(run).getByText('Run stopped at outline')).toBeInTheDocument();
   });
 
+  describe('step timeline', () => {
+    const steps: Step[] = ['outline', 'draft', 'polish'].map((id) => ({ id, type: 'llm' }));
+
+    function timeline(run: HTMLElement): (string | undefined)[][] {
+      return Array.from(
+        run.querySelectorAll<HTMLElement>('[data-component="TimelineStep"]'),
+        (step) => [step.dataset.step, step.dataset.state],
+      );
+    }
+
+    afterEach(() => vi.useRealTimers());
+
+    it('should show a running run as done, running and waiting steps', async () => {
+      vi.useFakeTimers({ now: Date.parse('2026-09-10T09:00:04Z'), toFake: ['Date'] });
+      mockWorkflowsApi({
+        workflows: [buildWorkflow({ steps })],
+        runs: [
+          buildRun({
+            status: 'running',
+            finishedAt: undefined,
+            output: undefined,
+            steps: [{ id: 'outline', output: 'Point one', ms: 1000 }],
+          }),
+        ],
+      });
+      renderRoute({ initialLocation: '/workflows/wf-1' });
+
+      const run = await waitFor(() => getComponent('RunItem'));
+      expect(timeline(run)).toEqual([
+        ['outline', 'done'],
+        ['draft', 'running'],
+        ['polish', 'pending'],
+      ]);
+      expect(within(run).getByText('Running · 3 s')).toBeInTheDocument();
+      expect(within(run).getByText('4 s')).toBeInTheDocument();
+      expect(within(run).getByText('Waiting')).toBeInTheDocument();
+    });
+
+    it('should mark the steps after a failed one as not run', async () => {
+      mockWorkflowsApi({
+        workflows: [buildWorkflow({ steps })],
+        runs: [
+          buildRun({
+            status: 'failed',
+            output: undefined,
+            steps: [{ id: 'outline', error: 'Vertex AI returned 429', ms: 900 }],
+          }),
+        ],
+      });
+      renderRoute({ initialLocation: '/workflows/wf-1' });
+
+      const run = await waitFor(() => getComponent('RunItem'));
+      expect(timeline(run)).toEqual([
+        ['outline', 'failed'],
+        ['draft', 'skipped'],
+        ['polish', 'skipped'],
+      ]);
+      expect(within(run).getAllByText('Not run')).toHaveLength(2);
+    });
+
+    it('should show only the recorded steps once the workflow changed after the run started', async () => {
+      mockWorkflowsApi({
+        workflows: [buildWorkflow({ steps, modifiedAt: '2026-09-10T09:00:01Z' })],
+        runs: [
+          buildRun({
+            status: 'running',
+            finishedAt: undefined,
+            output: undefined,
+            steps: [{ id: 'outline', output: 'Point one', ms: 1000 }],
+          }),
+        ],
+      });
+      renderRoute({ initialLocation: '/workflows/wf-1' });
+
+      const run = await waitFor(() => getComponent('RunItem'));
+      expect(timeline(run)).toEqual([['outline', 'done']]);
+    });
+  });
+
   it('should poll the runs while one is running and stop once it is done', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     let fetches = 0;

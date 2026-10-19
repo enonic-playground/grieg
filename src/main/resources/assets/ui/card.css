@@ -44,6 +44,16 @@
   --radius-lg: var(--border-radius-lg, 10px);
 }
 
+@theme {
+  --animate-fade-in: fade-in 300ms ease-out;
+
+  @keyframes fade-in {
+    from {
+      opacity: 0;
+    }
+  }
+}
+
 @layer base {
   :root {
     color-scheme: light dark;

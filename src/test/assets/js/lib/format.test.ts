@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  counter,
   date,
   dateTime,
   duration,
@@ -67,5 +68,18 @@ describe('dateTime and date', () => {
   it('should return a value that is not a date as it is', () => {
     expect(dateTime('soon', 'en-US')).toBe('soon');
     expect(date('soon', 'en-US')).toBe('soon');
+  });
+});
+
+describe('counter', () => {
+  it.each([
+    [0, '0 s'],
+    [4999, '4 s'],
+    [59_999, '59 s'],
+    [60_000, '1 min'],
+    [65_400, '1 min 5 s'],
+    [119_999, '1 min 59 s'],
+  ])('should count %d ms in whole seconds as %s', (ms, expected) => {
+    expect(counter(ms)).toBe(expected);
   });
 });
