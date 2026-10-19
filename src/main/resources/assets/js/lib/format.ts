@@ -17,15 +17,24 @@ export function relativeTime(iso: string, locale: string, now: number = Date.now
   return format.format(0, 'second');
 }
 
-export function dateTime(iso: string, locale: string): string {
+function absolute(iso: string, locale: string, options: Intl.DateTimeFormatOptions): string {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return iso;
-  return new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeStyle: 'short' }).format(date);
+  return new Intl.DateTimeFormat(locale, options).format(date);
+}
+
+export function dateTime(iso: string, locale: string): string {
+  return absolute(iso, locale, { dateStyle: 'medium', timeStyle: 'short' });
+}
+
+export function date(iso: string, locale: string): string {
+  return absolute(iso, locale, { dateStyle: 'medium' });
 }
 
 export function duration(ms: number): string {
-  if (ms < 1000) return `${Math.round(ms)} ms`;
-  if (ms < 60_000) return `${(ms / 1000).toFixed(1)} s`;
+  // Compared after rounding, so 999.7 ms is not "1000 ms" and 59,990 ms is not "60.0 s".
+  if (Math.round(ms) < 1000) return `${Math.round(ms)} ms`;
+  if (Math.round(ms / 100) < 600) return `${(ms / 1000).toFixed(1)} s`;
   const total = Math.round(ms / 1000);
   const minutes = Math.floor(total / 60);
   const seconds = total % 60;

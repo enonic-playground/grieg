@@ -24,7 +24,7 @@
   --card: 0 0% 100%;
   --card-foreground: 240 17% 8%;
 
-  /* Primary (brand accent — red) */
+  /* Primary (brand accent — indigo) */
   --primary: 250 72% 60%;
   --primary-foreground: 0 0% 100%;
 
@@ -41,7 +41,7 @@
   --accent-foreground: 240 17% 8%;
 
   /* Destructive */
-  --destructive: 250 72% 60%;
+  --destructive: 0 72% 45%;
   --destructive-foreground: 0 0% 100%;
 
   /* Borders & inputs */
@@ -88,9 +88,9 @@
   --accent: 240 12% 13%;
   --accent-foreground: 240 15% 95%;
 
-  /* Destructive */
-  --destructive: 250 72% 60%;
-  --destructive-foreground: 0 0% 100%;
+  /* Destructive: light enough to read as text here, so text on it is dark */
+  --destructive: 0 84% 64%;
+  --destructive-foreground: 240 17% 8%;
 
   /* Borders & inputs */
   --border: 240 7% 15%;

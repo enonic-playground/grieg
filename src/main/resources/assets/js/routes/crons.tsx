@@ -8,6 +8,7 @@ import type { ReactElement } from 'react';
 import { Page, PageError, PageSkeleton } from '../components/page';
 import { Badge } from '../components/ui/badge';
 import { EmptyState } from '../components/ui/empty-state';
+import { RelativeTime } from '../components/ui/relative-time';
 import {
   Table,
   TableBody,
@@ -17,6 +18,8 @@ import {
   TableRow,
 } from '../components/ui/table';
 import { cronJobsQueryOptions } from '../lib/api/crons';
+import { workflowsQueryOptions } from '../lib/api/workflows';
+import { describeCron } from '../lib/cron';
 import { requireAdmin } from '../lib/guards';
 
 const CRONS_PAGE_NAME = 'CronsPage';
@@ -24,6 +27,7 @@ const CRONS_PAGE_NAME = 'CronsPage';
 const CronsPage = (): ReactElement => {
   const { t } = useTranslation();
   const { data, isPending, error } = useQuery(cronJobsQueryOptions());
+  const workflows = useQuery(workflowsQueryOptions()).data;
 
   if (isPending) return <PageSkeleton />;
   if (error != null) return <PageError message={t('common.state.error')} />;
@@ -52,37 +56,50 @@ const CronsPage = (): ReactElement => {
           </TableRow>
         </TableHeader>
         <TableBody>
-          {data.map((job) => (
-            <TableRow key={job.name}>
-              <TableCell>
-                {job.workflowId == null ? (
-                  job.name
-                ) : (
-                  <Link
-                    to="/workflows/$workflowId"
-                    params={{ workflowId: job.workflowId }}
-                    className="hover:underline"
-                  >
-                    {job.name}
-                  </Link>
-                )}
-              </TableCell>
-              <TableCell>
-                {job.cron ?? '-'}
-                {job.timeZone != null && (
-                  <span className="text-muted-foreground"> ({job.timeZone})</span>
-                )}
-              </TableCell>
-              <TableCell>{job.descriptor}</TableCell>
-              <TableCell>{job.user ?? '-'}</TableCell>
-              <TableCell>{job.lastRun ?? '-'}</TableCell>
-              <TableCell>
-                <Badge variant={job.enabled ? 'default' : 'outline'}>
-                  {t(job.enabled ? 'common.state.enabled' : 'common.state.disabled')}
-                </Badge>
-              </TableCell>
-            </TableRow>
-          ))}
+          {data.map((job) => {
+            const workflowName = workflows?.find(
+              (workflow) => workflow.id === job.workflowId,
+            )?.displayName;
+            const words = describeCron(job.cron);
+            return (
+              <TableRow key={job.name}>
+                <TableCell>
+                  {job.workflowId == null ? (
+                    <span className="font-mono">{job.name}</span>
+                  ) : (
+                    <Link
+                      to="/workflows/$workflowId"
+                      params={{ workflowId: job.workflowId }}
+                      className="text-primary hover:underline"
+                      title={job.name}
+                    >
+                      {workflowName ?? job.name}
+                    </Link>
+                  )}
+                </TableCell>
+                <TableCell>
+                  <div className="flex flex-col">
+                    <span>{words ?? <span className="font-mono">{job.cron ?? '-'}</span>}</span>
+                    <span className="text-muted-foreground">
+                      {words != null && <span className="font-mono">{job.cron}</span>}
+                      {words != null && job.timeZone != null && ' · '}
+                      {job.timeZone}
+                    </span>
+                  </div>
+                </TableCell>
+                <TableCell className="font-mono">{job.descriptor}</TableCell>
+                <TableCell>{job.user ?? '-'}</TableCell>
+                <TableCell>
+                  {job.lastRun != null ? <RelativeTime iso={job.lastRun} /> : '-'}
+                </TableCell>
+                <TableCell>
+                  <Badge variant={job.enabled ? 'default' : 'outline'}>
+                    {t(job.enabled ? 'common.state.enabled' : 'common.state.disabled')}
+                  </Badge>
+                </TableCell>
+              </TableRow>
+            );
+          })}
         </TableBody>
       </Table>
     </Page>

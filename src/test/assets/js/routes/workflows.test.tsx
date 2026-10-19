@@ -99,7 +99,10 @@ const CRONS_URL = buildConfig().apiUris.crons;
 
 // Answers the crons API the way the server does for the workflow's own schedule.
 function answerCrons(state: { schedule: Job | null }, options: FetchOptions): unknown {
-  const { method = 'GET', body } = options;
+  const { method = 'GET', body, params = {} } = options;
+  if (method === 'GET' && params.workflowId == null) {
+    return { jobs: state.schedule == null ? [] : [state.schedule] };
+  }
   if (method === 'GET') return state.schedule;
   if (method === 'DELETE') {
     state.schedule = null;
@@ -182,12 +185,7 @@ describe('WorkflowsPage', () => {
     mockWorkflowsApi({
       workflows: [
         buildWorkflow(),
-        buildWorkflow({
-          id: 'wf-2',
-          displayName: 'Digest',
-          enabled: false,
-          steps: [step, step, step],
-        }),
+        buildWorkflow({ id: 'wf-2', displayName: 'Digest', steps: [step, step, step] }),
       ],
     });
     const { user, router } = renderRoute({ initialLocation: '/workflows' });
@@ -196,12 +194,47 @@ describe('WorkflowsPage', () => {
     const rows = within(getComponent('WorkflowsPage')).getAllByRole('row').slice(1);
     expect(rows).toHaveLength(2);
     expect(within(rows[0]).getByText('1')).toBeInTheDocument();
-    expect(within(rows[0]).getByText('Enabled')).toBeInTheDocument();
     expect(within(rows[1]).getByText('3')).toBeInTheDocument();
-    expect(within(rows[1]).getByText('Disabled')).toBeInTheDocument();
 
     await user.click(link);
     await waitFor(() => expect(router.state.location.pathname).toBe('/workflows/wf-1'));
+  });
+
+  it("should show each workflow's schedule and how long ago it was modified", async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-09-12T08:12:00Z'));
+    mockWorkflowsApi({
+      // Stored `enabled` is ignored: only a schedule makes a workflow run on its own.
+      workflows: [buildWorkflow(), buildWorkflow({ id: 'wf-2', displayName: 'Digest' })],
+      schedule: buildJob(),
+    });
+    renderRoute({ initialLocation: '/workflows' });
+
+    await screen.findByRole('link', { name: 'Summarize articles' });
+    const [scheduled, unscheduled] = within(getComponent('WorkflowsPage'))
+      .getAllByRole('row')
+      .slice(1);
+    expect(await within(scheduled).findByTitle('0 2 * * * · Europe/Oslo')).toHaveTextContent(
+      'Daily at 02:00',
+    );
+    expect(within(unscheduled).getByText('Not scheduled')).toBeInTheDocument();
+    const modified = within(scheduled).getByText('2 days ago');
+    expect(modified).toHaveAttribute('dateTime', '2026-09-10T08:12:00Z');
+  });
+
+  it('should tell a failed schedule lookup apart from no schedule', async () => {
+    mockWorkflowsApi();
+    const answer = mockedApiFetch.getMockImplementation();
+    mockedApiFetch.mockImplementation(async (url: string, options?: FetchOptions) => {
+      if (url === CRONS_URL) throw { status: 500, message: 'Scheduler down' };
+      return answer?.(url, options);
+    });
+    renderRoute({ initialLocation: '/workflows' });
+
+    await screen.findByRole('link', { name: 'Summarize articles' });
+    const [row] = within(getComponent('WorkflowsPage')).getAllByRole('row').slice(1);
+    expect(await within(row).findByTitle('Something went wrong')).toHaveTextContent('-');
+    expect(within(row).queryByText('Not scheduled')).toBeNull();
   });
 
   it('should create a workflow from the empty state and open it', async () => {
@@ -215,7 +248,9 @@ describe('WorkflowsPage', () => {
 
     expect(calls).toContainEqual({ method: 'POST', body: { name: 'daily-digest' } });
     await waitFor(() => expect(router.state.location.pathname).toBe('/workflows/wf-new'));
-    expect(await screen.findByRole('heading', { name: /daily-digest/ })).toBeInTheDocument();
+    expect(
+      await screen.findByRole('heading', { level: 2, name: 'daily-digest' }),
+    ).toBeInTheDocument();
   });
 });
 
@@ -225,6 +260,45 @@ describe('WorkflowPage', () => {
     renderRoute({ initialLocation: '/workflows/missing' });
 
     expect(await screen.findByText('No workflow with this id.')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Workflows');
+    expect(screen.queryByRole('navigation', { name: 'Breadcrumb' })).toBeNull();
+  });
+
+  it('should name the workflow in the header breadcrumb', async () => {
+    mockWorkflowsApi();
+    const { user, router } = renderRoute({ initialLocation: '/workflows/wf-1' });
+
+    const breadcrumb = await screen.findByRole('navigation', { name: 'Breadcrumb' });
+    expect(
+      await within(breadcrumb).findByRole('heading', { level: 1, name: 'Summarize articles' }),
+    ).toBeInTheDocument();
+    await user.click(within(breadcrumb).getByRole('link', { name: 'Workflows' }));
+    await waitFor(() => expect(router.state.location.pathname).toBe('/workflows'));
+  });
+
+  it('should show a paused schedule next to the workflow name', async () => {
+    mockWorkflowsApi({ schedule: buildJob({ enabled: false }) });
+    renderRoute({ initialLocation: '/workflows/wf-1' });
+
+    const heading = await screen.findByRole('heading', { level: 2, name: 'Summarize articles' });
+    const state = await within(heading.parentElement as HTMLElement).findByTitle(
+      '0 2 * * * · Europe/Oslo',
+    );
+    expect(within(state).getByText('Paused')).toBeInTheDocument();
+    expect(within(state).getByText('Daily at 02:00')).toBeInTheDocument();
+  });
+
+  it('should list the steps before the runs and the schedule', async () => {
+    mockWorkflowsApi();
+    renderRoute({ initialLocation: '/workflows/wf-1' });
+
+    await screen.findByText('No runs yet.');
+    const titles = screen.getAllByRole('heading', { level: 3 }).map((title) => title.textContent);
+    expect(titles.filter((title) => ['Steps', 'Runs', 'Schedule'].includes(title ?? ''))).toEqual([
+      'Steps',
+      'Runs',
+      'Schedule',
+    ]);
   });
 
   it('should show that a workflow has no runs yet', async () => {
@@ -251,10 +325,31 @@ describe('WorkflowPage', () => {
     expect(within(run).getByText('Schedule')).toBeInTheDocument();
     expect(within(run).getByText('user:system:su')).toBeInTheDocument();
     expect(within(run).getByText('2.0 s')).toBeInTheDocument();
+    expect(within(run).getByText('1.8 s')).toBeInTheDocument();
     expect(within(run).getByText('Step outline')).toBeInTheDocument();
     expect(within(run).getByText('<b>step</b>')).toBeInTheDocument();
     expect(within(run).getByText('<i>run</i>')).toBeInTheDocument();
     expect(run.querySelector('b, i')).toBeNull();
+  });
+
+  it('should not repeat the last step output as the run output', async () => {
+    mockWorkflowsApi({
+      runs: [
+        buildRun({
+          steps: [
+            { id: 'outline', output: 'Point one', ms: 900 },
+            { id: 'polish', output: 'Final text', ms: 900 },
+          ],
+          output: 'Final text',
+        }),
+      ],
+    });
+    renderRoute({ initialLocation: '/workflows/wf-1' });
+
+    const run = await waitFor(() => getComponent('RunItem'));
+    expect(within(run).getAllByText('Final text')).toHaveLength(1);
+    expect(within(run).getAllByText('Point one')).toHaveLength(1);
+    expect(within(run).queryByText('Run output')).toBeNull();
   });
 
   it("should show a failed run's step and run errors", async () => {

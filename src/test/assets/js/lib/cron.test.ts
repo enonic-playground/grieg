@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { describeCron } from '../../../main/resources/assets/ui/cron';
+import { describeCron } from '../../../../main/resources/assets/js/lib/cron';
 
 describe('describeCron', () => {
   it.each([

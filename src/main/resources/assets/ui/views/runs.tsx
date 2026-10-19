@@ -3,10 +3,10 @@ import { useEffect } from 'react';
 import type { RunDetail, RunStep, ToolResults } from '../shapes';
 import type { ReactElement } from 'react';
 
+import { dateTime, duration, elapsed, relativeTime, shortUser } from '../../js/lib/format';
 import { cn } from '../../js/lib/utils';
 import { useCard } from '../card-context';
 import { Dot, Empty, Meta, Row, RunStatusLabel, SectionLabel, Tag } from '../components';
-import { dateTime, duration, elapsed, relativeTime, shortUser } from '../format';
 
 const POLL_MS = 3000;
 // About two minutes; a longer run is left to the refresh button.

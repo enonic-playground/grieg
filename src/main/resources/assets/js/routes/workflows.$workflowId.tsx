@@ -9,12 +9,12 @@ import type { ApiError } from '../types/api';
 import type { ReactElement } from 'react';
 
 import { Page, PageError, PageSkeleton } from '../components/page';
-import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
 import { Card, CardContent } from '../components/ui/card';
 import { ConfirmDialog } from '../components/ui/confirm-dialog';
 import { RunsCard } from '../components/workflows/runs-card';
 import { ScheduleCard } from '../components/workflows/schedule-card';
+import { ScheduleState } from '../components/workflows/schedule-state';
 import { StepsEditorCard } from '../components/workflows/steps-editor-card';
 import { useScheduleDraft } from '../components/workflows/use-schedule-draft';
 import { useStepsDraft } from '../components/workflows/use-steps-draft';
@@ -67,12 +67,10 @@ const WorkflowDetails = ({ workflow }: WorkflowDetailsProps): ReactElement => {
       <Card>
         <CardContent className="flex flex-wrap items-center gap-3 p-5">
           <div className="flex min-w-0 flex-1 flex-col gap-1">
-            <h2 className="flex items-center gap-2 text-base font-semibold">
-              {workflow.displayName}
-              <Badge variant={workflow.enabled ? 'default' : 'outline'}>
-                {t(workflow.enabled ? 'common.state.enabled' : 'common.state.disabled')}
-              </Badge>
-            </h2>
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+              <h2 className="text-base font-semibold">{workflow.displayName}</h2>
+              <ScheduleState job={scheduleQuery.data} className="text-xs" />
+            </div>
             <span className="text-muted-foreground font-mono text-xs">{workflow.name}</span>
             {workflow.description != null && (
               <p className="text-muted-foreground text-xs">{workflow.description}</p>
@@ -102,6 +100,7 @@ const WorkflowDetails = ({ workflow }: WorkflowDetailsProps): ReactElement => {
         </CardContent>
       </Card>
 
+      <StepsEditorCard workflowId={workflow.id} draft={draft} />
       <RunsCard workflowId={workflow.id} />
       <ScheduleCard
         workflowId={workflow.id}
@@ -109,7 +108,6 @@ const WorkflowDetails = ({ workflow }: WorkflowDetailsProps): ReactElement => {
         failed={scheduleQuery.data === undefined && scheduleQuery.error != null}
         draft={scheduleDraft}
       />
-      <StepsEditorCard workflowId={workflow.id} draft={draft} />
 
       {blocker.status === 'blocked' && (
         <ConfirmDialog

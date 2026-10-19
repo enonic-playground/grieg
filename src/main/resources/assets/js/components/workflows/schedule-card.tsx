@@ -15,13 +15,13 @@ import {
   scheduleQueryKey,
   updateSchedule,
 } from '../../lib/api/crons';
-import { formatDateTime } from '../../lib/expiry';
 import { cn } from '../../lib/utils';
 import { PageError, PageSkeleton } from '../page';
 import { Button } from '../ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
 import { ConfirmDialog } from '../ui/confirm-dialog';
 import { inputClasses } from '../ui/input';
+import { RelativeTime } from '../ui/relative-time';
 import { same } from './use-schedule-draft';
 
 const CRON_EXAMPLE = '0 2 * * *';
@@ -42,7 +42,7 @@ export const ScheduleCard = ({
   failed,
   draft,
 }: ScheduleCardProps): ReactElement => {
-  const { t, i18n } = useTranslation();
+  const { t } = useTranslation();
   const queryClient = useQueryClient();
   const uid = useId();
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -127,12 +127,14 @@ export const ScheduleCard = ({
         {job != null && (
           <dl className="grid grid-cols-[max-content_1fr] gap-x-6 gap-y-1 text-xs">
             <dt className="text-muted-foreground">{t('workflows.schedule.field.user')}</dt>
-            <dd className="font-mono">{job.user ?? '-'}</dd>
+            <dd>{job.user ?? '-'}</dd>
             <dt className="text-muted-foreground">{t('workflows.schedule.field.lastRun')}</dt>
             <dd>
-              {job.lastRun != null
-                ? formatDateTime(job.lastRun, i18n.language)
-                : t('workflows.schedule.never')}
+              {job.lastRun != null ? (
+                <RelativeTime iso={job.lastRun} />
+              ) : (
+                t('workflows.schedule.never')
+              )}
             </dd>
           </dl>
         )}

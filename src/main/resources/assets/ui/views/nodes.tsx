@@ -5,9 +5,9 @@ import type { JsonObject, NodeDetail, ToolResults } from '../shapes';
 import type { ReactElement } from 'react';
 
 import { Button } from '../../js/components/ui/button';
+import { dateTime, relativeTime } from '../../js/lib/format';
 import { useCard } from '../card-context';
 import { Dot, Empty, Meta, Mono, Row, SectionLabel, Tag } from '../components';
-import { dateTime, relativeTime } from '../format';
 
 const PAGE_SIZE = 20;
 // Nested objects below this depth start collapsed.

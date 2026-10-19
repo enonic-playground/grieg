@@ -5,7 +5,7 @@ import type { GriegConfig } from '../../lib/config';
 import type { Connection } from './use-own-key';
 import type { ReactElement, ReactNode } from 'react';
 
-import { formatDateTime } from '../../lib/expiry';
+import { dateTime } from '../../lib/format';
 import { cn } from '../../lib/utils';
 import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
@@ -106,7 +106,7 @@ const ConnectionStatus = ({
         <Status
           tone="success"
           icon={<CircleCheck className="text-success size-5 shrink-0" />}
-          title={t('mcp.check.connected', { time: formatDateTime(connection.at, i18n.language) })}
+          title={t('mcp.check.connected', { time: dateTime(connection.at, i18n.language) })}
           detail={t('mcp.check.connectedDetail')}
         />
       );
@@ -114,7 +114,7 @@ const ConnectionStatus = ({
       return (
         <Status
           icon={<Clock className={mutedIcon} />}
-          title={t('mcp.check.lastUsed', { time: formatDateTime(connection.at, i18n.language) })}
+          title={t('mcp.check.lastUsed', { time: dateTime(connection.at, i18n.language) })}
           detail={t('mcp.check.lastUsedDetail')}
         />
       );

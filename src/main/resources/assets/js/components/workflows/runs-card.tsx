@@ -6,11 +6,12 @@ import type { Run, RunStatus } from '../../lib/api/workflows';
 import type { ReactElement } from 'react';
 
 import { runsQueryOptions } from '../../lib/api/workflows';
-import { formatDateTime } from '../../lib/expiry';
+import { duration, elapsed } from '../../lib/format';
 import { cn } from '../../lib/utils';
 import { PageError, PageSkeleton } from '../page';
 import { Badge } from '../ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
+import { RelativeTime } from '../ui/relative-time';
 
 const RUN_COLUMNS = 'grid grid-cols-[5rem_5.5rem_minmax(0,1fr)_11rem_4rem] gap-3';
 
@@ -20,12 +21,6 @@ const STATUS_CLASSES: Record<RunStatus, string> = {
   failed: 'text-destructive',
   skipped: 'text-muted-foreground',
 };
-
-function formatDuration(run: Run): string {
-  if (run.finishedAt == null) return '-';
-  const ms = Date.parse(run.finishedAt) - Date.parse(run.startedAt);
-  return ms < 1000 ? `${ms} ms` : `${(ms / 1000).toFixed(1)} s`;
-}
 
 type OutputProps = {
   label: string;
@@ -56,7 +51,7 @@ type RunItemProps = {
 const RUN_ITEM_NAME = 'RunItem';
 
 const RunItem = ({ run }: RunItemProps): ReactElement => {
-  const { t, i18n } = useTranslation();
+  const { t } = useTranslation();
   // Owned here, so a panel stays as the user left it when its run finishes.
   const [open, setOpen] = useState(run.status === 'running');
 
@@ -69,25 +64,27 @@ const RunItem = ({ run }: RunItemProps): ReactElement => {
             'hover:bg-row-hover cursor-pointer items-center px-5 py-2 text-xs',
           )}
         >
-          <span className={cn('font-mono font-semibold', STATUS_CLASSES[run.status])}>
+          <span className={cn('font-semibold', STATUS_CLASSES[run.status])}>
             {t(`workflows.runs.status.${run.status}`)}
           </span>
           <Badge variant="outline" className="justify-self-start">
             {t(`workflows.runs.trigger.${run.trigger}`)}
           </Badge>
-          <span className="truncate font-mono" title={run.user}>
+          <span className="truncate" title={run.user}>
             {run.user}
           </span>
-          <span>{formatDateTime(run.startedAt, i18n.language)}</span>
-          <span className="text-muted-foreground text-right font-mono">{formatDuration(run)}</span>
+          <RelativeTime iso={run.startedAt} />
+          <span className="text-muted-foreground text-right tabular-nums">
+            {elapsed(run.startedAt, run.finishedAt ?? null) ?? '-'}
+          </span>
         </summary>
         <div className="flex flex-col gap-3 px-5 pb-4">
           {run.steps.map((step) => (
             <div key={step.id} className="flex flex-col gap-1">
               <span className="text-xs font-medium">
                 {t('workflows.runs.step', { id: step.id })}{' '}
-                <span className="text-muted-foreground font-mono">
-                  {t('workflows.runs.stepMs', { ms: step.ms })}
+                <span className="text-muted-foreground font-normal tabular-nums">
+                  {duration(step.ms)}
                 </span>
               </span>
               {step.output != null && (
@@ -101,7 +98,9 @@ const RunItem = ({ run }: RunItemProps): ReactElement => {
           {run.error != null && (
             <Output label={t('workflows.runs.runError')} text={run.error} error />
           )}
-          {run.output != null && <Output label={t('workflows.runs.runOutput')} text={run.output} />}
+          {run.output != null && run.output !== run.steps.at(-1)?.output && (
+            <Output label={t('workflows.runs.runOutput')} text={run.output} />
+          )}
         </div>
       </details>
     </li>
