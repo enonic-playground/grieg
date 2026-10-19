@@ -7,10 +7,12 @@ import { normalizeOrigin, originOf } from '../../lib/access';
 import { errorResponse } from '../../lib/api';
 import { getOauthConfig, type OauthConfig } from '../../lib/config';
 import { exchangeCode, issueCode, refresh, type TokenResponse } from '../../lib/grants';
+import { randomToken } from '../../lib/key-crypto';
 import { checkOwner, MCP_ROLE, MCP_ROLE_NAME } from '../../lib/keys';
 import {
   authorizationResponse,
   ENDPOINTS,
+  isRegistrationError,
   isRepeated,
   isTokenError,
   issuerOf,
@@ -20,8 +22,10 @@ import {
   publishesDiscovery,
   tokenError,
   validateAuthorizeRequest,
+  validateRegistration,
   wellKnownDocument,
   type AuthorizeRequest,
+  type Endpoint,
   type Params,
   type TokenError,
 } from '../../lib/oauth';
@@ -41,17 +45,16 @@ const AUTHORIZE_PARAMS = [
   'scope',
 ];
 
-type Context = { config: OauthConfig; origin: string; endpoint?: 'authorize' | 'token' };
+type Context = { config: OauthConfig; origin: string; endpoint?: Endpoint };
 
 function contextOf(req: Request): Context | undefined {
   const config = getOauthConfig();
   if (!publishesDiscovery(config.enabled, ENDPOINTS)) return undefined;
   const base = issuerPath(app.name);
-  const endpoint = ENDPOINTS.find((name) => req.path === `${base}/${name}`);
   return {
     config,
     origin: originOf(req.scheme, req.host, req.port),
-    endpoint: endpoint === 'authorize' || endpoint === 'token' ? endpoint : undefined,
+    endpoint: ENDPOINTS.find((name) => req.path === `${base}/${name}`),
   };
 }
 
@@ -223,6 +226,33 @@ function token(params: Params, config: OauthConfig): TokenResponse | TokenError 
   );
 }
 
+// Anonymous by RFC 7591: never log the request's metadata, which is the caller's own text.
+function register(req: Request, { config }: Context): Response {
+  const headers = { 'Cache-Control': 'no-store', Pragma: 'no-cache' };
+  const registration = validateRegistration(req.body, config.redirectUris);
+  if (isRegistrationError(registration)) {
+    return {
+      status: 400,
+      contentType: 'application/json',
+      headers,
+      body: JSON.stringify({
+        error: registration.error,
+        error_description: registration.description,
+      }),
+    };
+  }
+  return {
+    status: 201,
+    contentType: 'application/json',
+    headers,
+    body: JSON.stringify({
+      client_id: `client-${randomToken()}`,
+      client_id_issued_at: Math.floor(Date.now() / 1000),
+      ...registration,
+    }),
+  };
+}
+
 export function get(req: Request): Response {
   const context = contextOf(req);
   if (context == null) return notFound();
@@ -251,6 +281,7 @@ export function post(req: Request): Response {
     }
     return authorize(req, context);
   }
+  if (context.endpoint === 'register') return register(req, context);
   if (context.endpoint !== 'token') return notFound();
   try {
     return tokenReply(token(req.params, context.config));

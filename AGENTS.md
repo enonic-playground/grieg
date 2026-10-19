@@ -212,9 +212,14 @@ server's tools in `src/test/apis/mcp.test.ts`, so a new tool goes into both.
     `ENDPOINTS` lists what the API serves, and nothing is published (challenge, either document,
     either endpoint) until `oauth.enabled` is on and it holds `authorize` and `token`: the MCP
     spec requires the resource metadata to name an authorization server, and none may be
-    advertised before it works. Add `register` to `ENDPOINTS` only with its handler.
-  - **OAuth grants**: `apis/oauth` routes `authorize` (GET consent page, POST decision) and `token`
-    on `req.path`; form bodies arrive in `req.params`. `lib/oauth.ts` holds the pure protocol
+    advertised before it works. An entry in `ENDPOINTS` and its handler go in together.
+  - **OAuth grants**: `apis/oauth` routes `authorize` (GET consent page, POST decision), `token`
+    and `register` on `req.path`; form bodies arrive in `req.params`, the JSON registration body
+    in `req.body`. `register` (RFC 7591, anonymous) is stateless: `validateRegistration()` admits
+    only public clients whose every redirect URI is allow-listed, and the handler returns a random
+    `client-<token>` that is never stored. Do not add a client store while chosen client_ids are
+    still admitted at `/authorize`: it would gate nothing and give anonymous callers a write path.
+    Never render a registered `client_name`; the consent title comes from the redirect host. `lib/oauth.ts` holds the pure protocol
     (request validation, PKCE, the `iss`-carrying redirect, `matchRefresh`), `lib/grants.ts` the
     store under `/mcp/oauth/{grants,codes,access}`, all `ADMIN_ONLY` and digest-named except
     grants, which take a random hex id that the refresh token (`<grantId>.<secret>`) carries.
@@ -230,8 +235,8 @@ server's tools in `src/test/apis/mcp.test.ts`, so a new tool goes into both.
     before either write. When two refreshes race that way, both succeed, and the next use of the
     losing refresh token counts as reuse and revokes the grant. Keep one writer per node where
     possible: `lastUsed` is recorded on the access node, because a write to the grant from an MCP
-    request could undo a rotation. A client_id is an unverified label until client registration
-    lands; the exact `oauth.redirectUris` match admits a client. Never
+    request could undo a rotation. A client_id is an unverified label, registered or not; the
+    exact `oauth.redirectUris` match admits a client. Never
     log a code, a token, a verifier or a digest; the grant id is half a refresh token, so it stays
     out of logs too. The consent page renders through `/lib/mustache`, which tests alias to
     `src/test/stubs/mustache.ts`.

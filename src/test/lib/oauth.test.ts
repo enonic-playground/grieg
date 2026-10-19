@@ -6,10 +6,13 @@ import {
   authorizationServerMetadata,
   bearerChallenge,
   ENDPOINTS,
+  isRegistrationError,
   matchRefresh,
+  MAX_REGISTRATION_LENGTH,
   protectedResourceMetadata,
   publishesDiscovery,
   validateAuthorizeRequest,
+  validateRegistration,
   verifyPkce,
   wellKnownDocument,
   withQuery,
@@ -74,6 +77,12 @@ describe('authorizationServerMetadata', () => {
     expect(
       authorizationServerMetadata(ORIGIN, APP, [...SERVED, 'register']).registration_endpoint,
     ).toBe(`${ISSUER}/register`);
+  });
+
+  it('should list the registration endpoint grieg serves today', () => {
+    expect(authorizationServerMetadata(ORIGIN, APP, ENDPOINTS).registration_endpoint).toBe(
+      `${ISSUER}/register`,
+    );
   });
 });
 
@@ -271,5 +280,116 @@ describe('matchRefresh', () => {
 
   it('should treat the previous token after 30 s as reuse', () => {
     expect(matchRefresh(state, 'previous', new Date('2026-10-19T12:00:10.000Z'))).toBe('reused');
+  });
+});
+
+describe('validateRegistration', () => {
+  const CLAUDE = 'https://claude.ai/api/mcp/auth_callback';
+  const CHATGPT = 'https://chatgpt.com/connector_platform_oauth_redirect';
+  const ALLOWED = [CLAUDE, CHATGPT];
+  const register = (metadata: unknown) => validateRegistration(JSON.stringify(metadata), ALLOWED);
+  const errorOf = (metadata: unknown) => {
+    const result = register(metadata);
+    return isRegistrationError(result) ? result.error : 'registered';
+  };
+
+  it('should register a public client from the body Claude sends, defaulting the rest', () => {
+    expect(register({ redirect_uris: [CLAUDE], client_name: 'Claude' })).toEqual({
+      redirect_uris: [CLAUDE],
+      token_endpoint_auth_method: 'none',
+      grant_types: ['authorization_code', 'refresh_token'],
+      response_types: ['code'],
+    });
+  });
+
+  it('should keep only the supported grant types the client asked for, and drop duplicates', () => {
+    expect(
+      register({
+        redirect_uris: [CHATGPT, CHATGPT],
+        token_endpoint_auth_method: 'none',
+        grant_types: ['authorization_code', 'client_credentials'],
+        response_types: ['code'],
+        scope: 'offline_access',
+        logo_uri: 'https://evil.example/logo.png',
+      }),
+    ).toEqual({
+      redirect_uris: [CHATGPT],
+      token_endpoint_auth_method: 'none',
+      grant_types: ['authorization_code'],
+      response_types: ['code'],
+    });
+  });
+
+  it('should refuse a redirect URI that is not exactly allow-listed, even beside an allowed one', () => {
+    expect(errorOf({ redirect_uris: [CLAUDE, 'https://evil.example/cb'] })).toBe(
+      'invalid_redirect_uri',
+    );
+    expect(errorOf({ redirect_uris: [`${CLAUDE}/`] })).toBe('invalid_redirect_uri');
+    expect(errorOf({ redirect_uris: [`${CLAUDE}?x=1`] })).toBe('invalid_redirect_uri');
+  });
+
+  it.each([
+    ['missing', {}],
+    ['empty', { redirect_uris: [] }],
+    ['a string', { redirect_uris: CLAUDE }],
+    ['not strings', { redirect_uris: [1] }],
+    ['more than ten', { redirect_uris: Array.from({ length: 11 }, () => CLAUDE) }],
+  ])('should refuse redirect_uris that are %s', (_, metadata) => {
+    expect(errorOf(metadata)).toBe('invalid_redirect_uri');
+  });
+
+  it('should accept ten redirect URIs', () => {
+    expect(errorOf({ redirect_uris: Array.from({ length: 10 }, () => CLAUDE) })).toBe('registered');
+  });
+
+  it('should accept a body of exactly the limit and refuse one character more', () => {
+    const base = JSON.stringify({ redirect_uris: [CLAUDE], client_name: '' });
+    const padded = (length: number) =>
+      JSON.stringify({ redirect_uris: [CLAUDE], client_name: 'x'.repeat(length - base.length) });
+
+    expect(
+      isRegistrationError(validateRegistration(padded(MAX_REGISTRATION_LENGTH), ALLOWED)),
+    ).toBe(false);
+    expect(
+      isRegistrationError(validateRegistration(padded(MAX_REGISTRATION_LENGTH + 1), ALLOWED)),
+    ).toBe(true);
+  });
+
+  it('should register nothing while the allow-list is empty', () => {
+    const result = validateRegistration(JSON.stringify({ redirect_uris: [CLAUDE] }), []);
+
+    expect(isRegistrationError(result) && result.error).toBe('invalid_redirect_uri');
+  });
+
+  it.each(['client_secret_basic', 'client_secret_post', 'private_key_jwt'])(
+    'should refuse a client that asks for %s',
+    (method) => {
+      expect(errorOf({ redirect_uris: [CLAUDE], token_endpoint_auth_method: method })).toBe(
+        'invalid_client_metadata',
+      );
+    },
+  );
+
+  it.each([
+    ['grant_types without authorization_code', { grant_types: ['refresh_token'] }],
+    ['grant_types that are not a list', { grant_types: 'authorization_code' }],
+    ['response_types without code', { response_types: ['token'] }],
+  ])('should refuse %s', (_, metadata) => {
+    expect(errorOf({ redirect_uris: [CLAUDE], ...metadata })).toBe('invalid_client_metadata');
+  });
+
+  it.each([
+    ['no body', undefined],
+    ['a body that is not JSON', '{'],
+    ['a JSON array', '[]'],
+    ['JSON null', 'null'],
+    [
+      'a body over the limit',
+      JSON.stringify({ redirect_uris: [CLAUDE], client_name: 'x'.repeat(MAX_REGISTRATION_LENGTH) }),
+    ],
+  ])('should refuse %s as invalid_client_metadata', (_, body) => {
+    const result = validateRegistration(body, ALLOWED);
+
+    expect(isRegistrationError(result) && result.error).toBe('invalid_client_metadata');
   });
 });

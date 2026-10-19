@@ -10,7 +10,7 @@ const AUTHORIZATION_SERVER = 'oauth-authorization-server';
 export type Endpoint = 'authorize' | 'token' | 'register';
 
 // The endpoints `apis/oauth` serves; the metadata names no other.
-export const ENDPOINTS: readonly Endpoint[] = ['authorize', 'token'];
+export const ENDPOINTS: readonly Endpoint[] = ['authorize', 'token', 'register'];
 
 export const OFFLINE_ACCESS = 'offline_access';
 
@@ -113,8 +113,8 @@ export type AuthorizeCheck =
   | { ok: false; fatal: string }
   | { ok: false; redirectUri: string; state?: string; error: string; description: string };
 
-// Without registration a client_id is an unverified label, bound to the grant and checked again
-// at the token endpoint; the exact redirect URI is what admits a client.
+// A client_id is an unverified label, registered or not, bound to the grant and checked again at
+// the token endpoint; the exact redirect URI is what admits a client.
 const CLIENT_ID_PATTERN = /^[\x21-\x7E]{1,255}$/;
 // The S256 challenge is the base64url SHA-256 of the verifier, 32 bytes without padding.
 const CHALLENGE_PATTERN = /^[\w-]{43}$/;
@@ -290,4 +290,96 @@ export function matchRefresh(state: RefreshState, digest: string, now: Date): Re
   if (state.previousRefresh == null || !safeEqual(digest, state.previousRefresh)) return 'reused';
   const rotated = state.rotated == null ? Number.NaN : Date.parse(state.rotated);
   return now.getTime() - rotated < REFRESH_GRACE_MS ? 'raced' : 'reused';
+}
+
+//
+// * Dynamic client registration (RFC 7591)
+//
+
+// Registration stores nothing: a registered client_id is admitted like any other label, so a
+// store would gate nothing and would only give anonymous callers something to fill.
+export const MAX_REGISTRATION_LENGTH = 16 * 1024;
+const MAX_REDIRECT_URIS = 10;
+const GRANT_TYPES = ['authorization_code', 'refresh_token'];
+
+export type RegistrationError = {
+  error: 'invalid_redirect_uri' | 'invalid_client_metadata';
+  description: string;
+};
+
+export type Registration = {
+  redirect_uris: string[];
+  token_endpoint_auth_method: 'none';
+  grant_types: string[];
+  response_types: ['code'];
+};
+
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((item) => typeof item === 'string');
+}
+
+// Unknown metadata, `client_name` included, is accepted and dropped. An omitted auth method is
+// taken as `none`, since Claude omits it; one that asks for a secret is refused.
+export function validateRegistration(
+  body: string | undefined,
+  redirectUris: readonly string[],
+): Registration | RegistrationError {
+  const invalid = (description: string): RegistrationError => ({
+    error: 'invalid_client_metadata',
+    description,
+  });
+  if (body == null || body.length > MAX_REGISTRATION_LENGTH) {
+    return invalid(
+      `The body must be a JSON object of at most ${MAX_REGISTRATION_LENGTH} characters`,
+    );
+  }
+  let metadata: unknown;
+  try {
+    metadata = JSON.parse(body);
+  } catch {
+    return invalid('The body is not JSON');
+  }
+  if (metadata == null || typeof metadata !== 'object' || Array.isArray(metadata)) {
+    return invalid('The body must be a JSON object');
+  }
+  const {
+    redirect_uris: uris,
+    token_endpoint_auth_method: authMethod,
+    grant_types: grantTypes = GRANT_TYPES,
+    response_types: responseTypes = ['code'],
+  } = metadata as Record<string, unknown>;
+
+  if (!isStringArray(uris) || uris.length === 0 || uris.length > MAX_REDIRECT_URIS) {
+    return {
+      error: 'invalid_redirect_uri',
+      description: `redirect_uris must list 1 to ${MAX_REDIRECT_URIS} URIs`,
+    };
+  }
+  if (!uris.every((uri) => redirectUris.includes(uri))) {
+    return {
+      error: 'invalid_redirect_uri',
+      description: 'A redirect URI is not one this server accepts',
+    };
+  }
+  if (authMethod != null && authMethod !== 'none') {
+    return invalid('Only public clients are registered: token_endpoint_auth_method must be none');
+  }
+  if (!isStringArray(grantTypes) || !grantTypes.includes('authorization_code')) {
+    return invalid('grant_types must include authorization_code');
+  }
+  if (!isStringArray(responseTypes) || !responseTypes.includes('code')) {
+    return invalid('response_types must include code');
+  }
+  return {
+    redirect_uris: [...new Set(uris)],
+    token_endpoint_auth_method: 'none',
+    grant_types: GRANT_TYPES.filter((type) => grantTypes.includes(type)),
+    response_types: ['code'],
+  };
+}
+
+export function isRegistrationError(
+  result: Registration | RegistrationError,
+): result is RegistrationError {
+  return 'error' in result;
 }
