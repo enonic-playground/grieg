@@ -12,6 +12,7 @@ export type GriegConfig = {
     workflows: string;
     crons: string;
     keys: string;
+    grants: string;
   };
   mcp: {
     uri: string;
@@ -19,6 +20,11 @@ export type GriegConfig = {
     toolsets: string[];
     readOnly: boolean;
     workflowTools: boolean;
+    oauth: {
+      enabled: boolean;
+      redirectUris: string[];
+      chatgpt: boolean;
+    };
   };
   launcherUri: string;
   // Cosmetic: lets the client hide routes. Every API checks access itself.

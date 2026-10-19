@@ -5,6 +5,7 @@ import {
   authorizationResponse,
   authorizationServerMetadata,
   bearerChallenge,
+  clientName,
   ENDPOINTS,
   isRegistrationError,
   matchRefresh,
@@ -38,6 +39,21 @@ describe('publishesDiscovery', () => {
 
   it('should publish from the endpoints served today, which include authorize and token', () => {
     expect(publishesDiscovery(true, ENDPOINTS)).toBe(true);
+  });
+});
+
+describe('clientName', () => {
+  it('should name Claude and ChatGPT from their callback hosts', () => {
+    expect(clientName('https://claude.ai/api/mcp/auth_callback')).toBe('Claude');
+    expect(clientName('https://claude.com/api/mcp/auth_callback')).toBe('Claude');
+    expect(clientName('https://chatgpt.com/connector_platform_oauth_redirect')).toBe('ChatGPT');
+  });
+
+  it('should name any other client by its host and port alone', () => {
+    expect(clientName('http://localhost:6274/oauth/callback?x=1')).toBe('localhost:6274');
+    expect(clientName('https://evilclaude.ai/cb')).toBe('evilclaude.ai');
+    expect(clientName('https://claude.ai.evil.com/cb')).toBe('claude.ai.evil.com');
+    expect(clientName('https://claude.ai:8443/cb')).toBe('claude.ai:8443');
   });
 });
 

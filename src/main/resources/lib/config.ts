@@ -52,12 +52,14 @@ export function getMcpConfig(): McpConfig {
   };
 }
 
+export const CHATGPT_REDIRECT_URI = 'https://chatgpt.com/connector_platform_oauth_redirect';
+
 // Claude's hosted apps (claude.ai, and claude.com, which Anthropic says it may move to) and
 // ChatGPT's fixed callback, which ChatGPT uses because grieg returns `iss` (RFC 9207).
 export const DEFAULT_REDIRECT_URIS = [
   'https://claude.ai/api/mcp/auth_callback',
   'https://claude.com/api/mcp/auth_callback',
-  'https://chatgpt.com/connector_platform_oauth_redirect',
+  CHATGPT_REDIRECT_URI,
 ];
 const DEFAULT_ACCESS_TOKEN_TTL_S = 60 * 60;
 const DEFAULT_REFRESH_TOKEN_TTL_S = 30 * 24 * 60 * 60;

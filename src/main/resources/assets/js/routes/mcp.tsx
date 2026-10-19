@@ -7,6 +7,7 @@ import type { ReactElement } from 'react';
 import { AllKeysCard } from '../components/mcp/all-keys-card';
 import { ClientSetupCard } from '../components/mcp/client-setup-card';
 import { ConnectionCard } from '../components/mcp/connection-card';
+import { GrantsCard } from '../components/mcp/grants-card';
 import { OwnKeyCard } from '../components/mcp/own-key-card';
 import { isConnected, useOwnKey } from '../components/mcp/use-own-key';
 import { Page } from '../components/page';
@@ -30,6 +31,7 @@ const ConnectGuide = ({ mcp }: ConnectGuideProps): ReactElement => {
         checking={query.isFetching}
         onCheck={() => void query.refetch()}
       />
+      <GrantsCard scope="own" hideWhenEmpty={!mcp.oauth.enabled} />
     </>
   );
 };
@@ -53,6 +55,7 @@ const McpPage = (): ReactElement => {
         </Card>
       )}
       {config.access.admin && <AllKeysCard />}
+      {config.access.admin && <GrantsCard scope="all" hideWhenEmpty={!config.mcp.oauth.enabled} />}
     </Page>
   );
 };

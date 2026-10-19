@@ -249,6 +249,14 @@ export function originOfUri(uri: string): string | undefined {
   return /^https?:\/\/[^/?#]+/i.exec(uri)?.[0];
 }
 
+// Clients are not registered by name, so a grant's client is named from its redirect URI.
+export function clientName(redirectUri: string): string {
+  const host = (originOfUri(redirectUri) ?? redirectUri).replace(/^https?:\/\//i, '');
+  if (/^claude\.(ai|com)$/i.test(host)) return 'Claude';
+  if (/^chatgpt\.com$/i.test(host)) return 'ChatGPT';
+  return host;
+}
+
 export type TokenError = {
   status: number;
   error:

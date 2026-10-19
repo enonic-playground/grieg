@@ -72,6 +72,8 @@ export type Grant = {
   redirectUri: string;
   created: string;
   expires: string;
+  // When it stops working: `expires`, or earlier once it goes unrefreshed past the refresh TTL.
+  ends: string;
   lastUsed?: string;
 };
 
@@ -111,6 +113,7 @@ function toGrant(node: Node<GrantData>): Grant {
     redirectUri: node.redirectUri,
     created: node.created,
     expires: node.expires,
+    ends: earliest(node.expires, node.refreshExpires),
     lastUsed: latest(node.lastUsed, ...used),
   };
 }

@@ -12,6 +12,8 @@ export type ConfirmDialogProps = {
   pending?: boolean;
   onConfirm: () => void;
   onCancel: () => void;
+  // Runs as the dialog unmounts; `preventDefault()` keeps focus off the element that opened it.
+  onCloseAutoFocus?: (event: Event) => void;
 };
 
 const CONFIRM_DIALOG_NAME = 'ConfirmDialog';
@@ -25,6 +27,7 @@ export const ConfirmDialog = ({
   pending = false,
   onConfirm,
   onCancel,
+  onCloseAutoFocus,
 }: ConfirmDialogProps): ReactElement => {
   const { t } = useTranslation();
 
@@ -39,6 +42,7 @@ export const ConfirmDialog = ({
         <AlertDialog.Overlay className="fixed inset-0 z-50 bg-black/50" />
         <AlertDialog.Content
           data-component={CONFIRM_DIALOG_NAME}
+          onCloseAutoFocus={onCloseAutoFocus}
           className="bg-card text-card-foreground fixed top-1/2 left-1/2 z-50 flex w-[calc(100%-2rem)] max-w-md -translate-x-1/2 -translate-y-1/2 flex-col gap-3 rounded-lg border p-5 shadow-lg"
         >
           <AlertDialog.Title className="text-base font-semibold">{title}</AlertDialog.Title>

@@ -11,6 +11,7 @@ import { randomToken } from '../../lib/key-crypto';
 import { checkOwner, MCP_ROLE, MCP_ROLE_NAME } from '../../lib/keys';
 import {
   authorizationResponse,
+  clientName,
   ENDPOINTS,
   isRegistrationError,
   isRepeated,
@@ -80,13 +81,6 @@ function errorPage(status: number, message: string): Response {
 
 function redirect(location: string): Response {
   return { redirect: location, headers: { 'Cache-Control': 'no-store' } };
-}
-
-function clientName(redirectUri: string): string {
-  const host = (originOfUri(redirectUri) ?? redirectUri).replace(/^https?:\/\//i, '');
-  if (/^claude\.(ai|com)$/i.test(host)) return 'Claude';
-  if (/^chatgpt\.com$/i.test(host)) return 'ChatGPT';
-  return host;
 }
 
 function consentPage(req: Request, origin: string, request: AuthorizeRequest): Response {

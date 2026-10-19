@@ -495,6 +495,71 @@ function deleteKey(owner: string): Reply {
   return { data: { owner } };
 }
 
+type GrantInfo = {
+  id: string;
+  owner: string;
+  client: string;
+  clientId: string;
+  created: string;
+  expires: string;
+  lastUsed?: string;
+};
+
+const GRANT_TTL_MS = 90 * 24 * 60 * 60 * 1000;
+
+function mockGrant(
+  owner: string,
+  client: string,
+  clientId: string,
+  ageMs: number,
+  usedMs?: number,
+) {
+  const created = Date.now() - ageMs;
+  return {
+    id: randomBytes(32).toString('hex'),
+    owner,
+    client,
+    clientId,
+    created: new Date(created).toISOString(),
+    expires: new Date(created + GRANT_TTL_MS).toISOString(),
+    lastUsed: usedMs == null ? undefined : new Date(Date.now() - usedMs).toISOString(),
+  } satisfies GrantInfo;
+}
+
+const HOUR_MS = 60 * 60 * 1000;
+
+const grants: GrantInfo[] = [
+  mockGrant(
+    DEV_OWNER,
+    'ChatGPT',
+    'client-Yk2v9Qd0tLr8aWm3XcJp5nHs7bGe1uFi4oKz6TqNwRy',
+    2 * HOUR_MS,
+    5 * 60 * 1000,
+  ),
+  mockGrant(DEV_OWNER, 'Claude', 'claude', 6 * 24 * HOUR_MS, 26 * HOUR_MS),
+  mockGrant(
+    'user:system:alice',
+    'Claude',
+    'client-Pz4mR8sVq1kTn6YwB0xLc3dHj9gEa7uFo2iKs5NtWe',
+    3 * 24 * HOUR_MS,
+  ),
+];
+
+function listGrants(params: URLSearchParams): Reply {
+  if (params.get('all') === 'true') return { data: { grants } };
+  const own = grants.filter((grant) => grant.owner === DEV_OWNER);
+  return { data: { grants: own.map(({ owner: _owner, ...grant }) => grant) } };
+}
+
+function revokeGrant(params: URLSearchParams): Reply {
+  const index = grants.findIndex(
+    (grant) => grant.id === params.get('id') && grant.owner === (params.get('owner') ?? DEV_OWNER),
+  );
+  if (index < 0) return { status: 404, error: 'No such grant', code: 'NOT_FOUND' };
+  grants.splice(index, 1);
+  return { data: { revoked: true } };
+}
+
 // The dev user is both an admin and an MCP role member.
 const HANDLERS: Record<string, Partial<Record<Method, Handler>>> = {
   system: {
@@ -523,6 +588,10 @@ const HANDLERS: Record<string, Partial<Record<Method, Handler>>> = {
         ? { status: 201, data: generateKey(DEV_OWNER) }
         : { status: 415, error: 'Send the request as `application/json`' },
     DELETE: (params) => deleteKey(params.get('owner') ?? DEV_OWNER),
+  },
+  grants: {
+    GET: listGrants,
+    DELETE: revokeGrant,
   },
 };
 

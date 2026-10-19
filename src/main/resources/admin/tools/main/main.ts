@@ -7,8 +7,9 @@ import { apiUrl, assetUrl } from '/lib/xp/portal';
 import type { Request, Response } from '@enonic-types/core';
 
 import { originOf } from '../../../lib/access';
-import { getMcpConfig, TOOLSETS } from '../../../lib/config';
+import { CHATGPT_REDIRECT_URI, getMcpConfig, getOauthConfig, TOOLSETS } from '../../../lib/config';
 import { isAdmin, MCP_ROLE_NAME } from '../../../lib/keys';
+import { ENDPOINTS, publishesDiscovery } from '../../../lib/oauth';
 import { WORKFLOWS_TOOLSET } from '../../../lib/workflow-tools';
 
 const PHRASE_BUNDLE = 'i18n/app';
@@ -23,6 +24,7 @@ type GriegConfig = {
     workflows: string;
     crons: string;
     keys: string;
+    grants: string;
   };
   mcp: {
     // Absolute: the MCP API is mounted on `web`, outside the admin tool.
@@ -32,6 +34,13 @@ type GriegConfig = {
     readOnly: boolean;
     // Whether the current user, acting through their own key, is served the workflow tools.
     workflowTools: boolean;
+    oauth: {
+      // Whether connectors can sign in: discovery and the OAuth endpoints are served.
+      enabled: boolean;
+      redirectUris: string[];
+      // Whether `oauth.redirectUris` holds ChatGPT's exact callback, which sign-in requires.
+      chatgpt: boolean;
+    };
   };
   launcherUri: string;
   // Cosmetic: lets the client hide routes. Every API checks access itself.
@@ -49,6 +58,7 @@ type GriegConfig = {
 
 function buildMcpFacts(req: Request, user: string | undefined): GriegConfig['mcp'] {
   const { toolsets, readOnly } = getMcpConfig();
+  const oauth = getOauthConfig();
   const served = TOOLSETS.filter((name) => toolsets.includes(name));
   return {
     uri: `${originOf(req.scheme, req.host, req.port)}/api/${app.name}:mcp`,
@@ -56,6 +66,11 @@ function buildMcpFacts(req: Request, user: string | undefined): GriegConfig['mcp
     toolsets: served,
     readOnly,
     workflowTools: served.includes(WORKFLOWS_TOOLSET) && user != null && isAdmin(user),
+    oauth: {
+      enabled: publishesDiscovery(oauth.enabled, ENDPOINTS),
+      redirectUris: oauth.redirectUris,
+      chatgpt: oauth.redirectUris.includes(CHATGPT_REDIRECT_URI),
+    },
   };
 }
 
@@ -73,6 +88,7 @@ function buildConfig(req: Request): GriegConfig {
       workflows: apiUrl({ api: 'workflows', type: 'server' }),
       crons: apiUrl({ api: 'crons', type: 'server' }),
       keys: apiUrl({ api: 'keys', type: 'server' }),
+      grants: apiUrl({ api: 'grants', type: 'server' }),
     },
     mcp: buildMcpFacts(req, currentUser?.key),
     launcherUri: extensionUrl({

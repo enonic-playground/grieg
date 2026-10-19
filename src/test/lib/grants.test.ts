@@ -213,6 +213,7 @@ describe('exchangeCode', () => {
         redirectUri: CLAUDE,
         created: T0.toISOString(),
         expires: '2027-01-17T12:00:00.000Z',
+        ends: '2026-11-18T12:00:00.000Z',
       }),
     ]);
     expect(auditLog).toHaveBeenCalledWith(
