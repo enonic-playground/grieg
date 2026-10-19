@@ -18,6 +18,7 @@ const VIEW_TITLES: Record<string, string> = {
   runs: 'Runs',
   crons: 'Scheduled jobs',
   nodes: 'Nodes',
+  content: 'Content',
 };
 
 function viewTitle(toolName: string | undefined): string {

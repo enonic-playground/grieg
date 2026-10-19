@@ -20,6 +20,7 @@ import {
   planUpdate,
   SUBTREES,
   normalizeKey,
+  toDetail,
   toNodePath,
   toSummary,
   unknownKeys,
@@ -277,7 +278,7 @@ export function createContentTools(config: ToolsConfig, editBase: string): Tool[
     name: 'content_get',
     title: 'Read content',
     description:
-      `Read one content item in ${where} by id or path. Returns its summary plus the subtrees named in \`include\` ` +
+      `Read one content item in ${where} by id or path. Returns its summary, owner, created and first-published times, plus the subtrees named in \`include\` ` +
       `(default: data, unless \`fields\` is given) and the dot paths into data named in \`fields\`. ` +
       `A subtree over ${SUBTREE_BUDGET} characters is replaced by a truncation marker; \`fields\` share one ${SUBTREE_BUDGET}-character budget.`,
     inputSchema: {
@@ -303,6 +304,9 @@ export function createContentTools(config: ToolsConfig, editBase: string): Tool[
       type: 'object',
       properties: {
         ...SUMMARY_PROPERTIES,
+        owner: { ...NULLABLE_STRING, description: 'User key of the owner' },
+        createdTime: NULLABLE_STRING,
+        publishedTime: { ...NULLABLE_STRING, description: 'When it was first published' },
         data: {},
         x: {},
         page: {},
@@ -329,6 +333,7 @@ export function createContentTools(config: ToolsConfig, editBase: string): Tool[
         }
         return ok({
           ...summarize([content], editBase)[0],
+          ...toDetail(content),
           ...pickSubtrees(content, include),
           ...(fields != null && {
             fields: projectFields(content.data as JsonObject, fields, {

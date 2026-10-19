@@ -1,5 +1,6 @@
-// The `structuredContent` of each tool a card renders, as lib/workflow-tools.ts and
-// lib/node-tools.ts build it. Tool results carry no presentation shape: the card owns that.
+// The `structuredContent` of each tool a card renders, as lib/workflow-tools.ts,
+// lib/node-tools.ts and lib/tools.ts build it. Tool results carry no presentation shape: the card
+// owns that.
 
 export type JsonObject = Record<string, unknown>;
 
@@ -95,6 +96,58 @@ export type Repo = {
   access: 'read' | 'write';
 };
 
+export type ContentSummary = {
+  id: string;
+  name: string;
+  path: string;
+  displayName: string;
+  type: string;
+  language: string | null;
+  modifiedTime: string | null;
+  modifier: string | null;
+  workflowState: string | null;
+  valid: boolean;
+  hasChildren: boolean | null;
+  editUrl: string;
+};
+
+export type ContentDetail = ContentSummary & {
+  owner?: string | null;
+  createdTime?: string | null;
+  publishedTime?: string | null;
+  data?: unknown;
+  x?: unknown;
+  page?: unknown;
+  attachments?: unknown;
+  fields?: JsonObject;
+};
+
+export type Occurrences = { min: number; max: number };
+
+export type FormField = {
+  path: string;
+  kind: 'input' | 'itemSet' | 'optionSet' | 'option';
+  label: string;
+  helpText?: string;
+  inputType?: string;
+  occurrences?: Occurrences;
+  selection?: Occurrences;
+  default?: boolean;
+  config?: JsonObject;
+  capped?: boolean;
+};
+
+export type ContentType = {
+  name: string;
+  displayName: string;
+  description: string | null;
+  superType: string | null;
+  abstract: boolean;
+  allowChildContent: boolean;
+  form: FormField[];
+  note?: string;
+};
+
 export type ToolResults = {
   workflow_list: { workflows: WorkflowItem[] };
   run_list: { workflowId: string; runs: RunSummary[]; adminUrl: string };
@@ -108,6 +161,15 @@ export type ToolResults = {
   };
   node_get: NodeDetail;
   node_repos: { repos: Repo[] };
+  content_search: {
+    total: number;
+    start: number;
+    count: number;
+    hits: ContentSummary[];
+    nextCursor?: string;
+  };
+  content_get: ContentDetail;
+  content_type_get: ContentType;
 };
 
 export type CardTool = keyof ToolResults;
@@ -128,9 +190,13 @@ export function inferTool(data: unknown): CardTool | undefined {
   if (Array.isArray(data.runs)) return 'run_list';
   if (Array.isArray(data.steps)) return 'run_get';
   if (Array.isArray(data.jobs)) return 'cron_list';
-  if (Array.isArray(data.hits)) return 'node_query';
+  // Only content_search pages by `start`; node_query hits share the `hits` key.
+  if (Array.isArray(data.hits))
+    return typeof data.start === 'number' ? 'content_search' : 'node_query';
   if (Array.isArray(data.repos)) return 'node_repos';
+  if (Array.isArray(data.form)) return 'content_type_get';
   if (typeof data._id === 'string') return 'node_get';
+  if (typeof data.id === 'string' && typeof data.type === 'string') return 'content_get';
   return undefined;
 }
 

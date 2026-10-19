@@ -10,6 +10,7 @@ import { Button } from '../js/components/ui/button';
 import { cn } from '../js/lib/utils';
 import { CardContext } from './card-context';
 import { inferTool, toScreen } from './shapes';
+import { ContentSearchView, ContentTypeView, ContentView } from './views/content';
 import { CronsView } from './views/crons';
 import { NodeQueryView, NodeView, ReposView } from './views/nodes';
 import { RunDetailView, RunListView } from './views/runs';
@@ -58,6 +59,23 @@ function headingOf(screen: Screen): Heading {
         title: 'Repositories',
         subtitle: plural(screen.data.repos.length, 'repository', 'repositories'),
       };
+    case 'content_search': {
+      const { text, path, contentType } = screen.args;
+      const where = [typeof text === 'string' ? `"${text}"` : undefined, path, contentType].filter(
+        (part) => typeof part === 'string',
+      );
+      return {
+        title: screen.title || 'Content',
+        subtitle: [plural(screen.data.total, 'item', 'items'), ...where].join(' · '),
+      };
+    }
+    case 'content_get':
+      return {
+        title: screen.title || screen.data.displayName || screen.data.name,
+        subtitle: screen.data.path,
+      };
+    case 'content_type_get':
+      return { title: screen.data.displayName, subtitle: screen.data.name };
   }
 }
 
@@ -77,6 +95,12 @@ const ScreenBody = ({ screen }: { screen: Screen }): ReactElement => {
       return <NodeView data={screen.data} args={screen.args} />;
     case 'node_repos':
       return <ReposView data={screen.data} />;
+    case 'content_search':
+      return <ContentSearchView data={screen.data} args={screen.args} />;
+    case 'content_get':
+      return <ContentView data={screen.data} />;
+    case 'content_type_get':
+      return <ContentTypeView data={screen.data} />;
   }
 };
 

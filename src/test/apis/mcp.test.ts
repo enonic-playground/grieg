@@ -202,6 +202,11 @@ describe('cards', () => {
       'ui/resourceUri': 'ui://grieg/workflows',
       'openai/outputTemplate': 'ui://grieg/workflows',
     });
+    expect(toolMeta(tools, 'content_search')).toEqual({
+      ui: { resourceUri: 'ui://grieg/content' },
+      'ui/resourceUri': 'ui://grieg/content',
+      'openai/outputTemplate': 'ui://grieg/content',
+    });
     expect(toolMeta(tools, 'workflow_run')).toBeUndefined();
     expect(send(KEY, rpc('resources/read', { uri: 'ui://grieg/crons' })).result).toEqual({
       contents: [

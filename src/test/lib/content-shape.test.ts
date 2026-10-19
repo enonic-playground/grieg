@@ -17,6 +17,7 @@ import {
   pickSubtrees,
   planUpdate,
   toNodePath,
+  toDetail,
   toSummary,
 } from '../../main/resources/lib/content-shape';
 import { encodeCursor, nextCursor, SUBTREE_BUDGET } from '../../main/resources/lib/shape';
@@ -221,6 +222,25 @@ describe('toSummary', () => {
       hasChildren: true,
       editUrl: 'http://cs/default/edit/id-1',
     });
+  });
+});
+
+describe('toDetail', () => {
+  it('should add the owner, the created time and the first publish time', () => {
+    const item = content({
+      owner: 'user:system:owner',
+      publish: { from: '2026-03-01T00:00:00Z', first: '2026-01-02T00:00:00Z' },
+    });
+
+    expect(toDetail(item)).toEqual({
+      owner: 'user:system:owner',
+      createdTime: '2026-01-01T00:00:00Z',
+      publishedTime: '2026-01-02T00:00:00Z',
+    });
+  });
+
+  it('should leave the publish time null for content never published', () => {
+    expect(toDetail(content()).publishedTime).toBeNull();
   });
 });
 

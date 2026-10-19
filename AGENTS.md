@@ -176,10 +176,12 @@ server's tools in `src/test/apis/mcp.test.ts`, so a new tool goes into both.
     off the root node, and `exists()` runs as admin, so neither proves access.
   - Every write tool calls `auditWrite()` (`lib/audit.ts`) only after the write lands, inside
     the acting user's context. A failed audit write is logged, never returned as a tool error.
-  - **Cards** (MCP Apps): `lib/cards.ts` maps `workflow_list`, `run_*`, `cron_list` and
-    `node_query`/`node_get`/`node_repos` to four `ui://grieg/*` views of one HTML file, each
-    stamped with `<html data-view>`. `apis/mcp/mcp.ts` reads `ui/card.html` through lib-io once
-    per app start; without it, it logs once and serves no resources or tool `_meta.ui`.
+  - **Cards** (MCP Apps): `lib/cards.ts` maps `workflow_list`, `run_*`, `cron_list`,
+    `node_query`/`node_get`/`node_repos` and `content_search`/`content_get`/`content_type_get`
+    to five `ui://grieg/*` views of one HTML file, each stamped with `<html data-view>`. The card
+    tells results apart by shape (`inferTool` in `assets/ui/shapes.ts`), so a new card tool
+    needs a key no other result carries. `apis/mcp/mcp.ts` reads `ui/card.html` through lib-io
+    once per app start; without it, it logs once and serves no resources or tool `_meta.ui`.
     `resources/*` and the `resources` capability exist only while there are resources.
     `describeTools` names a tool's view three ways: `_meta.ui.resourceUri`, the flat
     `ui/resourceUri`, and ChatGPT's `openai/outputTemplate`.

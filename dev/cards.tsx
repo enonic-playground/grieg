@@ -33,6 +33,22 @@ const SCENARIOS: Record<string, Scenario> = {
     tool: 'node_get',
     args: { repo: 'com.example.catalog', branch: 'master', key: '/products/espresso-machine' },
   },
+  search: { view: 'content', tool: 'content_search', args: { text: 'guide' } },
+  articles: {
+    view: 'content',
+    tool: 'content_search',
+    args: { path: '/coffee-blog/articles', count: 3 },
+  },
+  content: {
+    view: 'content',
+    tool: 'content_get',
+    args: { key: '/coffee-blog/articles/brewing-guide' },
+  },
+  'content-type': {
+    view: 'content',
+    tool: 'content_type_get',
+    args: { name: 'com.example.news:article' },
+  },
 };
 
 type Theme = 'light' | 'dark';
