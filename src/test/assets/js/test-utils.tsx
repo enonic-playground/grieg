@@ -20,6 +20,7 @@ export function buildConfig(overrides?: Partial<GriegConfig>): GriegConfig {
       workflows: '/api/workflows',
       crons: '/api/crons',
       keys: '/api/keys',
+      grants: '/api/grants',
     },
     mcp: {
       uri: 'http://localhost:8080/api/com.enonic.app.grieg:mcp',
@@ -27,6 +28,14 @@ export function buildConfig(overrides?: Partial<GriegConfig>): GriegConfig {
       toolsets: ['content', 'nodes', 'workflows'],
       readOnly: false,
       workflowTools: true,
+      oauth: {
+        enabled: true,
+        redirectUris: [
+          'https://claude.ai/api/mcp/auth_callback',
+          'https://chatgpt.com/connector_platform_oauth_redirect',
+        ],
+        chatgpt: true,
+      },
     },
     launcherUri: '/launcher',
     access: { admin: true, mcp: true },

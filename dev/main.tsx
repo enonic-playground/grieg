@@ -4,7 +4,7 @@ import appProperties from '../src/main/resources/i18n/app.properties?raw';
 import '../src/main/resources/assets/styles/main.css';
 
 const CONFIG_ELEMENT_ID = 'grieg-config';
-const API_NAMES = ['system', 'workflows', 'crons', 'keys'] as const;
+const API_NAMES = ['system', 'workflows', 'crons', 'keys', 'grants'] as const;
 
 function parseProperties(content: string): Record<string, string> {
   const phrases: Record<string, string> = {};
@@ -26,8 +26,11 @@ function buildApiUris(): GriegConfig['apiUris'] {
   return uris;
 }
 
+const query = new URLSearchParams(window.location.search);
 // `?as=member` boots as an MCP role member who is not an admin.
-const isMember = new URLSearchParams(window.location.search).get('as') === 'member';
+const isMember = query.get('as') === 'member';
+// `?oauth=off` boots with OAuth sign-in off.
+const oauthEnabled = query.get('oauth') !== 'off';
 
 const config: GriegConfig = {
   appId: 'com.enonic.app.grieg',
@@ -40,6 +43,15 @@ const config: GriegConfig = {
     toolsets: ['content', 'nodes', 'workflows'],
     readOnly: false,
     workflowTools: !isMember,
+    oauth: {
+      enabled: oauthEnabled,
+      redirectUris: [
+        'https://claude.ai/api/mcp/auth_callback',
+        'https://claude.com/api/mcp/auth_callback',
+        'https://chatgpt.com/connector_platform_oauth_redirect',
+      ],
+      chatgpt: true,
+    },
   },
   launcherUri: '#',
   access: { admin: !isMember, mcp: true },

@@ -20,6 +20,7 @@ const NOW = Date.parse('2026-10-01T12:00:00Z');
 const DAY_MS = 24 * 60 * 60 * 1000;
 const PLAINTEXT = `grieg_${'A'.repeat(43)}`;
 const KEYS_URI = '/api/keys';
+const GRANTS_URI = '/api/grants';
 const MCP_URI = 'http://localhost:8080/api/com.enonic.app.grieg:mcp';
 
 type FetchOptions = { method?: string; body?: unknown; params?: Record<string, string> };
@@ -41,6 +42,7 @@ function mockKeysApi(initial: KeyInfo | null, initialAll: (KeyInfo & { owner: st
   let own = initial;
   const calls: FetchOptions[] = [];
   mockedApiFetch.mockImplementation(async (url: string, options: FetchOptions = {}) => {
+    if (url === GRANTS_URI) return { grants: [] };
     if (url !== KEYS_URI) return { workflows: [], jobs: [] };
     calls.push(options);
     const method = options.method ?? 'GET';
@@ -52,6 +54,45 @@ function mockKeysApi(initial: KeyInfo | null, initialAll: (KeyInfo & { owner: st
     if (options.params?.owner == null) own = null;
     else all = all.filter((key) => key.owner !== options.params?.owner);
     return { owner: options.params?.owner ?? 'user:system:su' };
+  });
+  return calls;
+}
+
+type GrantInfo = {
+  id: string;
+  client: string;
+  clientId: string;
+  created: string;
+  expires: string;
+  lastUsed?: string;
+  owner?: string;
+};
+
+function buildGrant(id: string, overrides?: Partial<GrantInfo>): GrantInfo {
+  return {
+    id,
+    client: 'ChatGPT',
+    clientId: `client-${id}`,
+    created: new Date(NOW - 2 * DAY_MS).toISOString(),
+    expires: new Date(NOW + 88 * DAY_MS).toISOString(),
+    ...overrides,
+  };
+}
+
+// A stateful stand-in for the grants API on top of the keys API stand-in.
+function mockGrantsApi(own: GrantInfo[], all: GrantInfo[] = []) {
+  const calls: FetchOptions[] = [];
+  const keys = mockedApiFetch.getMockImplementation();
+  mockedApiFetch.mockImplementation(async (url: string, options: FetchOptions = {}) => {
+    if (url !== GRANTS_URI) return keys?.(url, options);
+    calls.push(options);
+    if ((options.method ?? 'GET') === 'GET') {
+      return { grants: options.params?.all === 'true' ? all : own };
+    }
+    const keep = (grant: GrantInfo): boolean => grant.id !== options.params?.id;
+    if (options.params?.owner != null) all = all.filter(keep);
+    else own = own.filter(keep);
+    return { revoked: true };
   });
   return calls;
 }
@@ -225,6 +266,7 @@ describe('McpPage', () => {
     await screen.findByText('grieg_k3Xa…9fQ2');
 
     mockedApiFetch.mockImplementation(async (url: string, options: FetchOptions = {}) => {
+      if (url === GRANTS_URI) return { grants: [] };
       if (url !== KEYS_URI) return { workflows: [], jobs: [] };
       if (options.method === 'DELETE') throw { status: 404, message: 'You hold no MCP key' };
       return options.params?.all === 'true' ? { keys: [] } : null;
@@ -382,20 +424,72 @@ describe('client setup', () => {
     expect(curl).not.toContain(PLAINTEXT);
   });
 
-  it('should tell ChatGPT users keys do not work there and give the URL without the key', async () => {
+  it('should send ChatGPT users to sign in by URL while OAuth sign-in is on', async () => {
     const { user } = await generate();
 
     await user.click(screen.getByRole('tab', { name: 'ChatGPT' }));
     const setup = getCard('ChatGptSetup');
 
-    expect(within(setup).getByText("ChatGPT can't use personal keys yet")).toBeVisible();
+    expect(getCard('ChatGptSignIn')).toHaveAttribute('data-status', 'ready');
+    expect(within(setup).getByText('OAuth sign-in is on')).toBeVisible();
+    expect(
+      within(getCard('ChatGptSignIn')).getByText(
+        'https://chatgpt.com/connector_platform_oauth_redirect',
+      ),
+    ).toBeVisible();
+    expect(within(setup).getByText(/Under Authentication, choose OAuth/)).toBeVisible();
     const fields = [...setup.querySelectorAll('[data-component="CopyField"]')];
     expect(fields.map((field) => field.querySelector('code')?.textContent)).toEqual([MCP_URI]);
-    expect(within(setup).getByRole('link', { name: 'README' })).toHaveAttribute(
-      'href',
-      'https://github.com/enonic-playground/grieg#chatgpt',
-    );
+    expect(within(setup).queryByText(/A tunnel runs every request/)).toBeNull();
     expect(setup.textContent).not.toContain(PLAINTEXT);
+  });
+
+  it('should say how to turn OAuth sign-in on and offer only the tunnel while it is off', async () => {
+    mockKeysApi(null);
+    const { user } = renderRoute({
+      initialLocation: '/mcp',
+      config: buildConfig({
+        mcp: { ...buildConfig().mcp, oauth: { ...buildConfig().mcp.oauth, enabled: false } },
+      }),
+    });
+
+    await user.click(await screen.findByRole('tab', { name: 'ChatGPT' }));
+    const setup = getCard('ChatGptSetup');
+
+    expect(within(setup).getByText('OAuth sign-in is off on this server')).toBeVisible();
+    expect(setup.textContent).toContain('oauth.enabled = true');
+    expect(setup.querySelectorAll('[data-component="CopyField"]')).toHaveLength(0);
+    const links = within(setup).getAllByRole('link', { name: /^README: / });
+    expect(links.map((link) => link.getAttribute('href'))).toEqual([
+      'https://github.com/enonic-playground/grieg#oauth-sign-in',
+      'https://github.com/enonic-playground/grieg#chatgpt',
+    ]);
+  });
+
+  it('should warn when OAuth sign-in is on but does not admit ChatGPT', async () => {
+    mockKeysApi(null);
+    const { user } = renderRoute({
+      initialLocation: '/mcp',
+      config: buildConfig({
+        mcp: {
+          ...buildConfig().mcp,
+          oauth: {
+            enabled: true,
+            redirectUris: ['https://claude.ai/api/mcp/auth_callback', 'https://chatgpt.com/other'],
+            chatgpt: false,
+          },
+        },
+      }),
+    });
+
+    await user.click(await screen.findByRole('tab', { name: 'ChatGPT' }));
+
+    expect(getCard('ChatGptSignIn')).toHaveAttribute('data-status', 'blocked');
+    const setup = getCard('ChatGptSetup');
+    expect(setup.textContent).toContain('oauth.redirectUris');
+    expect(within(setup).getByText('https://chatgpt.com/other')).toBeVisible();
+    expect(setup.querySelectorAll('[data-component="CopyField"]')).toHaveLength(0);
+    expect(within(setup).getByText(/A tunnel runs every request/)).toBeVisible();
   });
 
   it('should show the same instructions with a placeholder once the key is no longer shown', async () => {
@@ -610,6 +704,177 @@ describe('connection check', () => {
 
     expect(await screen.findByText('No key yet')).toBeVisible();
     expect(getCard('ConnectionCard')).not.toHaveAttribute('data-done');
+  });
+});
+
+describe('signed-in apps', () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(NOW);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    mockedApiFetch.mockReset();
+  });
+
+  function getScopedGrants(scope: string): HTMLElement {
+    const el = document.querySelector(`[data-component="GrantsCard"][data-scope="${scope}"]`);
+    if (!el) throw new Error(`GrantsCard ${scope} not found`);
+    return el as HTMLElement;
+  }
+
+  function oauthOff() {
+    return buildConfig({
+      mcp: { ...buildConfig().mcp, oauth: { enabled: false, redirectUris: [], chatgpt: false } },
+    });
+  }
+
+  it('should list the member’s own apps and revoke one by id after confirmation', async () => {
+    mockKeysApi(null);
+    const calls = mockGrantsApi([
+      buildGrant('g1', { lastUsed: new Date(NOW - 5 * 60 * 1000).toISOString() }),
+      buildGrant('g2', { client: 'Claude', clientId: 'claude' }),
+    ]);
+    const { user } = renderRoute({
+      initialLocation: '/mcp',
+      config: buildConfig({ access: { admin: false, mcp: true } }),
+    });
+
+    const card = await waitFor(() => getScopedGrants('own'));
+    expect(await within(card).findByText('client-g1')).toBeInTheDocument();
+    expect(within(card).getByText('5 minutes ago')).toBeInTheDocument();
+    expect(within(card).getByText('Never')).toBeInTheDocument();
+
+    await user.click(within(card).getByRole('button', { name: 'Revoke Claude (claude)' }));
+    const dialog = screen.getByRole('alertdialog');
+    expect(dialog).toHaveTextContent('Revoke Claude?');
+    await user.click(within(dialog).getByRole('button', { name: 'Revoke' }));
+
+    expect(calls).toContainEqual({ method: 'DELETE', params: { id: 'g2' } });
+    await waitFor(() => expect(within(card).queryByText('claude')).toBeNull());
+    expect(within(card).getByRole('status')).toHaveTextContent('Claude (claude) was revoked.');
+    await waitFor(() =>
+      expect(within(card).getByRole('heading', { name: 'Signed-in apps' })).toHaveFocus(),
+    );
+    expect(calls.some((call) => call.params?.all === 'true')).toBe(false);
+  });
+
+  it('should not revoke when the confirmation is cancelled', async () => {
+    mockKeysApi(null);
+    const calls = mockGrantsApi([buildGrant('g1')]);
+    const { user } = renderRoute({
+      initialLocation: '/mcp',
+      config: buildConfig({ access: { admin: false, mcp: true } }),
+    });
+
+    const card = await waitFor(() => getScopedGrants('own'));
+    await user.click(await within(card).findByRole('button', { name: /^Revoke ChatGPT/ }));
+    await user.click(
+      within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Cancel' }),
+    );
+
+    expect(screen.queryByRole('alertdialog')).toBeNull();
+    expect(calls.filter((call) => call.method === 'DELETE')).toEqual([]);
+  });
+
+  it('should list every app with its owner for admins and revoke through the admin path', async () => {
+    mockKeysApi(null);
+    const calls = mockGrantsApi(
+      [],
+      [buildGrant('g9', { owner: 'user:system:alice', client: 'Claude', clientId: 'claude' })],
+    );
+    const { user } = renderRoute({ initialLocation: '/mcp' });
+
+    const all = await waitFor(() => getScopedGrants('all'));
+    const row = (await within(all).findByText('user:system:alice')).closest('tr') as HTMLElement;
+    await user.click(
+      within(row).getByRole('button', { name: 'Revoke Claude (claude) of user:system:alice' }),
+    );
+    const dialog = screen.getByRole('alertdialog');
+    expect(dialog).toHaveTextContent('user:system:alice');
+    await user.click(within(dialog).getByRole('button', { name: 'Revoke' }));
+
+    expect(calls).toContainEqual({
+      method: 'DELETE',
+      params: { id: 'g9', owner: 'user:system:alice' },
+    });
+    expect(await within(all).findByText('No one has approved an app.')).toBeInTheDocument();
+  });
+
+  it('should hide empty lists while OAuth sign-in is off, but keep apps that still hold grants', async () => {
+    mockKeysApi(null);
+    const calls = mockGrantsApi([], [buildGrant('g9', { owner: 'user:system:alice' })]);
+    renderRoute({ initialLocation: '/mcp', config: oauthOff() });
+
+    expect(await screen.findByText('user:system:alice')).toBeInTheDocument();
+    await waitFor(() => expect(calls.length).toBe(2));
+    expect(document.querySelector('[data-scope="own"]')).toBeNull();
+    expect(document.querySelector('[data-scope="all"]')).not.toBeNull();
+  });
+
+  it('should keep the card and move focus to it after revoking the last app while OAuth is off', async () => {
+    mockKeysApi(null);
+    mockGrantsApi([buildGrant('g1')]);
+    const { user } = renderRoute({
+      initialLocation: '/mcp',
+      config: buildConfig({ ...oauthOff(), access: { admin: false, mcp: true } }),
+    });
+
+    const card = await waitFor(() => getScopedGrants('own'));
+    await user.click(await within(card).findByRole('button', { name: /^Revoke ChatGPT/ }));
+    await user.click(
+      within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Revoke' }),
+    );
+
+    expect(await screen.findByText('You have approved no app yet.')).toBeInTheDocument();
+    expect(within(card).getByRole('status')).toHaveTextContent('ChatGPT (client-g1) was revoked.');
+    await waitFor(() =>
+      expect(within(card).getByRole('heading', { name: 'Signed-in apps' })).toHaveFocus(),
+    );
+  });
+
+  it('should move focus to the card when the app was already revoked elsewhere', async () => {
+    mockKeysApi(null);
+    mockGrantsApi([buildGrant('g1'), buildGrant('g2')]);
+    const keys = mockedApiFetch.getMockImplementation();
+    let own = [buildGrant('g1'), buildGrant('g2')];
+    mockedApiFetch.mockImplementation(async (url: string, options: FetchOptions = {}) => {
+      if (url !== GRANTS_URI) return keys?.(url, options);
+      if (options.method === 'DELETE') {
+        own = own.filter((grant) => grant.id !== options.params?.id);
+        throw { status: 404, message: 'No such grant' };
+      }
+      return { grants: own };
+    });
+    const { user } = renderRoute({
+      initialLocation: '/mcp',
+      config: buildConfig({ access: { admin: false, mcp: true } }),
+    });
+
+    const card = await waitFor(() => getScopedGrants('own'));
+    await user.click(
+      await within(card).findByRole('button', { name: 'Revoke ChatGPT (client-g1)' }),
+    );
+    await user.click(
+      within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Revoke' }),
+    );
+
+    expect(await within(card).findByRole('alert')).toHaveTextContent('No such grant');
+    await waitFor(() =>
+      expect(within(card).getByRole('heading', { name: 'Signed-in apps' })).toHaveFocus(),
+    );
+  });
+
+  it('should show an empty list of own apps while OAuth sign-in is on', async () => {
+    mockKeysApi(null);
+    mockGrantsApi([]);
+    renderRoute({
+      initialLocation: '/mcp',
+      config: buildConfig({ access: { admin: false, mcp: true } }),
+    });
+
+    expect(await screen.findByText('You have approved no app yet.')).toBeInTheDocument();
   });
 });
 

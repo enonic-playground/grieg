@@ -1,9 +1,10 @@
 # grieg
 
 Enonic XP application (`com.enonic.app.grieg`) that orchestrates AI integrations, scheduled jobs
-and workflows. It has an admin tool (`admin/tools/main/`), six server APIs (`system`,
-`workflows` and `crons`, all admin-only, `keys` for MCP role members and admins, the public,
-token-gated `mcp`, and the public `oauth`), one task (`run-workflow`), and no site components.
+and workflows. It has an admin tool (`admin/tools/main/`), seven server APIs (`system`,
+`workflows` and `crons`, all admin-only, `keys` and `grants` for MCP role members and admins,
+the public, token-gated `mcp`, and the public `oauth`), one task (`run-workflow`), and no site
+components.
 
 This is the only agent instruction file. Do not add a `CLAUDE.md`: Claude Code reads `AGENTS.md`
 only when no `CLAUDE.md` exists, so adding one would hide everything here.
@@ -124,6 +125,11 @@ server's tools in `src/test/apis/mcp.test.ts`, so a new tool goes into both.
 - **Keys API** (`apis/keys`) acts on the caller's own key, the owner taken from `getUser()` and
   never from the request, and refuses callers without the MCP role, admins included. Only
   `GET ?all=true` and `DELETE ?owner=` are admin paths. `POST` returns the plaintext once.
+- **Grants API** (`apis/grants`) follows the same model for OAuth grants (`lib/grants.ts`):
+  `GET` and `DELETE ?id=` act on the caller's own grants, and only `GET ?all=true` and
+  `DELETE ?id=&owner=` are admin paths. A grant id is half of a refresh token, so only its
+  owner or an admin ever receives it. It names a grant's client with `clientName()` from
+  `lib/oauth.ts`, as the consent page does; there is no client registry.
 - **Vertex AI.** `lib/vertex.ts` `generate({ prompt, model?, runId? })` calls Gemini through
   lib-http-client and throws only short messages that are safe to store. `lib/vertex-auth.ts`
   reaches google-auth-library through `Java.type`, holds one cached credentials object, and is

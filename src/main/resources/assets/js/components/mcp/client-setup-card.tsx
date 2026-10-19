@@ -5,6 +5,7 @@ import {
   Info,
   MessagesSquare,
   Plug,
+  ShieldCheck,
   SquareTerminal,
   TriangleAlert,
 } from 'lucide-react';
@@ -13,6 +14,7 @@ import { useTranslation } from 'react-i18next';
 import type { GriegConfig } from '../../lib/config';
 import type { ReactElement, ReactNode } from 'react';
 
+import { cn } from '../../lib/utils';
 import { Button } from '../ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
 import { CopyField, CopyFields, Snippet } from './snippet';
@@ -39,12 +41,15 @@ const DESKTOP_CONFIG_PATHS = [
 
 type ReadmeLinkProps = {
   anchor: string;
+  // Tells apart links that read the same in a screen reader's list of links.
+  label?: string;
   children: ReactNode;
 };
 
-const ReadmeLink = ({ anchor, children }: ReadmeLinkProps): ReactElement => (
+const ReadmeLink = ({ anchor, label, children }: ReadmeLinkProps): ReactElement => (
   <a
     href={`${README_URL}#${anchor}`}
+    aria-label={label}
     target="_blank"
     rel="noreferrer"
     className="text-primary underline-offset-4 hover:underline"
@@ -197,20 +202,81 @@ const CodeSetup = ({ mcp, apiKey }: SetupProps): ReactElement => {
 
 CodeSetup.displayName = CODE_SETUP_NAME;
 
+// `off`: no sign-in at all. `blocked`: sign-in is on, but `oauth.redirectUris` refuses ChatGPT.
+type ChatGptOauth = 'ready' | 'blocked' | 'off';
+
+function chatGptOauth({ enabled, chatgpt }: GriegConfig['mcp']['oauth']): ChatGptOauth {
+  if (!enabled) return 'off';
+  return chatgpt ? 'ready' : 'blocked';
+}
+
+const SIGN_IN_STATUS = {
+  ready: {
+    Icon: ShieldCheck,
+    tone: 'border-success/40 bg-success/10',
+    iconTone: 'text-success',
+    title: 'mcp.connect.chatgpt.oauthOn',
+    detail: 'mcp.connect.chatgpt.oauthOnDetail',
+  },
+  blocked: {
+    Icon: TriangleAlert,
+    tone: 'border-warning/40 bg-warning/10',
+    iconTone: 'text-warning',
+    title: 'mcp.connect.chatgpt.oauthBlocked',
+    detail: 'mcp.connect.chatgpt.oauthBlockedDetail',
+  },
+  off: {
+    Icon: Info,
+    tone: 'bg-muted/40',
+    iconTone: 'text-muted-foreground',
+    title: 'mcp.connect.chatgpt.oauthOff',
+    detail: 'mcp.connect.chatgpt.oauthOffDetail',
+  },
+} as const;
+
 const CHATGPT_SIGN_IN_NAME = 'ChatGptSignIn';
 
-const ChatGptSignIn = (): ReactElement => {
+type ChatGptSignInProps = {
+  status: ChatGptOauth;
+  redirectUris: string[];
+};
+
+const ChatGptSignIn = ({ status, redirectUris }: ChatGptSignInProps): ReactElement => {
   const { t } = useTranslation();
+  const { Icon, tone, iconTone, title, detail } = SIGN_IN_STATUS[status];
 
   return (
     <div
       data-component={CHATGPT_SIGN_IN_NAME}
-      className="bg-muted/40 flex items-start gap-2.5 rounded-md border p-3"
+      data-status={status}
+      className={cn('flex items-start gap-2.5 rounded-md border p-3', tone)}
     >
-      <Info className="text-muted-foreground mt-0.5 size-4 shrink-0" />
+      <Icon className={cn('mt-0.5 size-4 shrink-0', iconTone)} />
       <div className="flex flex-col gap-1">
-        <p className="text-sm font-medium">{t('mcp.connect.chatgpt.status')}</p>
-        <p className="text-muted-foreground text-xs">{t('mcp.connect.chatgpt.statusDetail')}</p>
+        <p className="text-sm font-medium">{t(title)}</p>
+        <p className="text-muted-foreground text-xs">
+          {t(detail)}
+          {status === 'off' && (
+            <>
+              {' '}
+              <ReadmeLink anchor="oauth-sign-in" label={t('mcp.connect.readmeOauth')}>
+                {t('mcp.connect.readme')}
+              </ReadmeLink>
+            </>
+          )}
+        </p>
+        {status !== 'off' && (
+          <div className="flex flex-col gap-1 pt-1">
+            <p className="text-muted-foreground text-xs">{t('mcp.connect.chatgpt.redirectUris')}</p>
+            <ul className="flex flex-col gap-0.5">
+              {redirectUris.map((uri) => (
+                <li key={uri} className="font-mono text-xs break-all">
+                  {uri}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -222,27 +288,44 @@ const CHATGPT_SETUP_NAME = 'ChatGptSetup';
 
 const ChatGptSetup = ({ mcp }: Pick<SetupProps, 'mcp'>): ReactElement => {
   const { t } = useTranslation();
+  const status = chatGptOauth(mcp.oauth);
+  const ready = status === 'ready';
 
   return (
     <div data-component={CHATGPT_SETUP_NAME} className="flex flex-col gap-5">
-      <ChatGptSignIn />
+      <ChatGptSignIn status={status} redirectUris={mcp.oauth.redirectUris} />
 
       <Instructions>
         <Instruction title={t('mcp.connect.chatgpt.open')} />
-        <Instruction title={t('mcp.connect.chatgpt.connection')}>
-          <CopyFields>
-            <CopyField label={t('mcp.connect.field.endpoint')} value={mcp.uri} />
-          </CopyFields>
-        </Instruction>
-        <Instruction title={t('mcp.connect.chatgpt.auth')} />
-        <Instruction title={t('mcp.connect.chatgpt.create')} />
+        {ready ? (
+          <>
+            <Instruction title={t('mcp.connect.chatgpt.connection')}>
+              <CopyFields>
+                <CopyField label={t('mcp.connect.field.endpoint')} value={mcp.uri} />
+              </CopyFields>
+            </Instruction>
+            <Instruction title={t('mcp.connect.chatgpt.auth')} />
+            <Instruction title={t('mcp.connect.chatgpt.create')} />
+            <Instruction title={t('mcp.connect.chatgpt.signIn')} />
+          </>
+        ) : (
+          <>
+            <Instruction title={t('mcp.connect.chatgpt.connectionTunnel')} />
+            <Instruction title={t('mcp.connect.chatgpt.authTunnel')} />
+            <Instruction title={t('mcp.connect.chatgpt.create')} />
+          </>
+        )}
         <Instruction title={t('mcp.connect.chatgpt.chat')} />
       </Instructions>
 
-      <p className="text-muted-foreground text-xs">
-        {t('mcp.connect.chatgpt.tunnel')}{' '}
-        <ReadmeLink anchor="chatgpt">{t('mcp.connect.readme')}</ReadmeLink>
-      </p>
+      {!ready && (
+        <p className="text-muted-foreground text-xs">
+          {t('mcp.connect.chatgpt.tunnel')}{' '}
+          <ReadmeLink anchor="chatgpt" label={t('mcp.connect.readmeTunnel')}>
+            {t('mcp.connect.readme')}
+          </ReadmeLink>
+        </p>
+      )}
       <p className="text-muted-foreground text-xs">{t('mcp.connect.chatgpt.plans')}</p>
     </div>
   );
