@@ -18,7 +18,12 @@ function tool(name: string): Tool {
     description: name,
     inputSchema: { type: 'object' },
     outputSchema: { type: 'object' },
-    annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
     handler: () => ({ ok: true, value: {} }),
   };
 }

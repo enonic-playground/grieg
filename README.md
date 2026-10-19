@@ -151,7 +151,7 @@ Summaries carry an `editUrl` into Content Studio. On the `draft` branch, edits n
 
 ### Cards in Claude Desktop
 
-Claude Desktop and claude.ai render the results of `workflow_list`, `run_list`, `run_get`, `cron_list`, `node_query`, `node_get` and `node_repos` as interactive cards ([MCP Apps](https://github.com/modelcontextprotocol/ext-apps)) that follow the host's light or dark theme. Claude Code, and any client without MCP Apps support, shows the same tools as text, as before. A card refreshes itself, pages a query and drills down (a workflow to its runs, a run to its steps, a query hit to its node, a node to its children) by calling the read tools through the host, as the acting user; it holds no key and makes no request of its own. It never writes: Run now, Enable, Disable and Delete schedule send Claude a request instead, so the write runs as a tool call behind the host's approval prompt and lands in the audit log. Desktop asks once before it shows a server's first card. The views are four `ui://grieg/*` resources built into the app as one self-contained HTML file; an app built without it logs `MCP serves no cards` once and serves the tools without views.
+Claude Desktop and claude.ai render the results of `workflow_list`, `run_list`, `run_get`, `cron_list`, `node_query`, `node_get` and `node_repos` as interactive cards ([MCP Apps](https://github.com/modelcontextprotocol/ext-apps)) that follow the host's light or dark theme. Claude Code, and any client without MCP Apps support, shows the same tools as text, as before. A card refreshes itself, pages a query and drills down (a workflow to its runs, a run to its steps, a query hit to its node, a node to its children) by calling the read tools through the host, as the acting user; it holds no key and makes no request of its own. It never writes: Run now, Enable, Disable and Delete schedule send Claude a request instead, so the write runs as a tool call behind the host's approval prompt and lands in the audit log. Desktop asks once before it shows a server's first card. The views are four `ui://grieg/*` resources built into the app as one self-contained HTML file; an app built without it logs `MCP serves no cards` once and serves the tools without views. Each card tool names its view in `_meta.ui.resourceUri`, in the deprecated flat `ui/resourceUri`, and in `openai/outputTemplate`, ChatGPT's alias for the same key.
 
 ### Authentication
 
@@ -159,7 +159,7 @@ Each user authenticates with a personal key, sent as `Authorization: Bearer grie
 
 On startup grieg creates the role `role:com.enonic.app.grieg.mcp`. A key is admitted only while its owner holds that role, directly or through a group, and is enabled. Both are checked on every request, so removing someone from the role or disabling them stops their key at once. A key expires 90 days after it was generated. The owner can be in any ID provider; XP builds their roles from stored memberships, which for an external ID provider are as fresh as that user's last interactive login. Roles live in `system-repo`, so the role stays after the app is uninstalled; delete it in the Users app if it is no longer wanted.
 
-Each role member manages their own key in the admin tool's MCP tab, a three-step connect page: get a key, which is shown once and afterwards only as its masked form, expiry and last use; copy what the chosen client needs (Claude Desktop, Claude Code, or other clients); and watch the first request arrive. Right after a key is generated the page checks it every 3 seconds for five minutes, while the page is visible, and turns to "Connected" on the key's first use; a key's first use is recorded at once, later uses at most hourly. The tab also states the toolsets the server serves, whether it is read-only, and whether the workflow tools are served to you. Admins also see and revoke every user's key there. A member who is not an admin sees only that tab. The tab uses the Keys API, which works with the XP login session that the admin tool runs in: `GET` returns the key's masked form and dates, `POST` with a JSON body generates a key, replacing the previous one, and returns the full key once, and `DELETE` removes it. An admin needs the role too to hold a key, and can also list every key (`GET ?all=true`) and revoke anyone's (`DELETE ?owner=user:<idprovider>:<login>`). A bearer that is not a `grieg_` key is compared with the deprecated shared `mcp.token` and runs as `mcp.user`, when both are set. The examples below use a personal key; a shared token goes in the same place.
+Each role member manages their own key in the admin tool's MCP tab, a three-step connect page: get a key, which is shown once and afterwards only as its masked form, expiry and last use; copy what the chosen client needs (Claude Desktop, Claude Code, ChatGPT, or other clients); and watch the first request arrive. Right after a key is generated the page checks it every 3 seconds for five minutes, while the page is visible, and turns to "Connected" on the key's first use; a key's first use is recorded at once, later uses at most hourly. The tab also states the toolsets the server serves, whether it is read-only, and whether the workflow tools are served to you. Admins also see and revoke every user's key there. A member who is not an admin sees only that tab. The tab uses the Keys API, which works with the XP login session that the admin tool runs in: `GET` returns the key's masked form and dates, `POST` with a JSON body generates a key, replacing the previous one, and returns the full key once, and `DELETE` removes it. An admin needs the role too to hold a key, and can also list every key (`GET ?all=true`) and revoke anyone's (`DELETE ?owner=user:<idprovider>:<login>`). A bearer that is not a `grieg_` key is compared with the deprecated shared `mcp.token` and runs as `mcp.user`, when both are set. The examples below use a personal key; a shared token goes in the same place.
 
 ### Claude Desktop
 
@@ -247,6 +247,45 @@ claude mcp add grieg --env MCP_URL=http://localhost:8080/api/com.enonic.app.grie
 Both protocol eras pass through. The forwarder sets `MCP-Protocol-Version` from each request's `_meta`, or from the version `initialize` negotiated, plus `Mcp-Method` and `Mcp-Name`. A reply that is not JSON-RPC, such as XP's login page on a rejected token, or a network failure, reaches the client as a JSON-RPC error with code `-32000`. `notifications/cancelled` aborts the matching request. Logs go to stderr. Claude Code does not need the forwarder, since it speaks HTTP directly.
 
 For a static token, the third-party `mcp-remote` (`npx mcp-remote <url> --header "Authorization: Bearer <token>" --protocol auto`) is an alternative.
+
+### ChatGPT
+
+ChatGPT cannot use a personal key yet. Its form for a custom MCP server offers OAuth, no authentication, or a mix of the two, and has no field for a header, while grieg does not offer OAuth sign-in yet. The ChatGPT tab of the MCP tab's connect step says so, and shows the endpoint and the steps to add a server: on chatgpt.com, Plugins, the plus button, Add custom MCP server; a name, the server URL or a tunnel under Connection, the authentication; confirm the risk warning and select Create as a plugin; then type `@` in a chat and pick grieg. Which ChatGPT plans can add a custom server has not been verified: OpenAI's guide names none, and says workspace permissions apply.
+
+Every tool declares `readOnlyHint`, `destructiveHint` and `openWorldHint`, which ChatGPT lists as required and uses to frame its confirmation; it treats a tool without `readOnlyHint` as a write. `content_update` and `cron_delete` are marked destructive, and `workflow_run`, which calls Vertex AI, open-world.
+
+#### Demo through a Secure MCP Tunnel
+
+For a demo, OpenAI's [Secure MCP Tunnel](https://developers.openai.com/api/docs/guides/secure-mcp-tunnels) can run the [stdio forwarder](#stdio-clients) with one key, on a machine that reaches XP; XP itself need not be reachable from the internet.
+
+> [!WARNING]
+> ChatGPT connects to a tunnel with no authentication, so everyone who can use the plugin acts as the key's owner, with that owner's permissions and under their name in the audit log. Use a dedicated user with the MCP role and only the permissions the demo needs, and revoke its key afterwards.
+
+1. Create a tunnel in the OpenAI Platform's tunnel settings, associated with the ChatGPT workspace, and install `tunnel-client`.
+2. Generate a key as the dedicated user, and save it in a file only you can read:
+
+   ```bash
+   (umask 077 && read -rs KEY && printf '%s\n' "$KEY" > ~/.grieg-chatgpt-key)   # paste, Enter
+   ```
+
+3. Create a profile that starts the forwarder, then check and run it, keeping it running for the demo:
+
+   ```bash
+   export CONTROL_PLANE_API_KEY="sk-..."
+   tunnel-client init --sample sample_mcp_stdio_local --profile grieg \
+     --tunnel-id tunnel_… \
+     --mcp-command "env MCP_URL=http://localhost:8080/api/com.enonic.app.grieg:mcp MCP_TOKEN_FILE=$HOME/.grieg-chatgpt-key node /path/to/grieg/dev/mcp-stdio.ts"
+   tunnel-client doctor --profile grieg --explain
+   tunnel-client run --profile grieg
+   ```
+
+4. In ChatGPT, add the custom MCP server with Tunnel under Connection, pick the tunnel, and No authentication.
+
+OpenAI's documentation does not say whether `tunnel-client` passes its own environment to the command it starts, or whether it splits `--mcp-command` through a shell. The `env` prefix sets both variables on the command itself, so it does not rely on the first; keep the paths free of spaces for the second. Neither has been tried against a live tunnel, nor has a card been seen rendering in ChatGPT.
+
+#### Origin and cookies
+
+Through the tunnel, the forwarder makes the requests, so grieg sees neither an `Origin` nor a cookie, as from any stdio client. Whether ChatGPT's own servers send either when they call an endpoint directly has not been checked. If they send `Origin: https://chatgpt.com`, grieg refuses it as not same-origin, logging the value, until `https://chatgpt.com` is added to `mcp.allowedOrigins`. A request with a cookie is refused whatever the configuration.
 
 ### Troubleshooting
 

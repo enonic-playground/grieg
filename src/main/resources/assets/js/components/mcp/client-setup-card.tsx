@@ -2,6 +2,8 @@ import {
   AppWindow,
   ChevronRight,
   Download,
+  Info,
+  MessagesSquare,
   Plug,
   SquareTerminal,
   TriangleAlert,
@@ -195,6 +197,59 @@ const CodeSetup = ({ mcp, apiKey }: SetupProps): ReactElement => {
 
 CodeSetup.displayName = CODE_SETUP_NAME;
 
+const CHATGPT_SIGN_IN_NAME = 'ChatGptSignIn';
+
+const ChatGptSignIn = (): ReactElement => {
+  const { t } = useTranslation();
+
+  return (
+    <div
+      data-component={CHATGPT_SIGN_IN_NAME}
+      className="bg-muted/40 flex items-start gap-2.5 rounded-md border p-3"
+    >
+      <Info className="text-muted-foreground mt-0.5 size-4 shrink-0" />
+      <div className="flex flex-col gap-1">
+        <p className="text-sm font-medium">{t('mcp.connect.chatgpt.status')}</p>
+        <p className="text-muted-foreground text-xs">{t('mcp.connect.chatgpt.statusDetail')}</p>
+      </div>
+    </div>
+  );
+};
+
+ChatGptSignIn.displayName = CHATGPT_SIGN_IN_NAME;
+
+const CHATGPT_SETUP_NAME = 'ChatGptSetup';
+
+const ChatGptSetup = ({ mcp }: Pick<SetupProps, 'mcp'>): ReactElement => {
+  const { t } = useTranslation();
+
+  return (
+    <div data-component={CHATGPT_SETUP_NAME} className="flex flex-col gap-5">
+      <ChatGptSignIn />
+
+      <Instructions>
+        <Instruction title={t('mcp.connect.chatgpt.open')} />
+        <Instruction title={t('mcp.connect.chatgpt.connection')}>
+          <CopyFields>
+            <CopyField label={t('mcp.connect.field.endpoint')} value={mcp.uri} />
+          </CopyFields>
+        </Instruction>
+        <Instruction title={t('mcp.connect.chatgpt.auth')} />
+        <Instruction title={t('mcp.connect.chatgpt.create')} />
+        <Instruction title={t('mcp.connect.chatgpt.chat')} />
+      </Instructions>
+
+      <p className="text-muted-foreground text-xs">
+        {t('mcp.connect.chatgpt.tunnel')}{' '}
+        <ReadmeLink anchor="chatgpt">{t('mcp.connect.readme')}</ReadmeLink>
+      </p>
+      <p className="text-muted-foreground text-xs">{t('mcp.connect.chatgpt.plans')}</p>
+    </div>
+  );
+};
+
+ChatGptSetup.displayName = CHATGPT_SETUP_NAME;
+
 const OTHER_SETUP_NAME = 'OtherSetup';
 
 const OtherSetup = ({ mcp, apiKey }: SetupProps): ReactElement => {
@@ -248,6 +303,10 @@ export const ClientSetupCard = ({ mcp, apiKey, done }: ClientSetupCardProps): Re
             <SquareTerminal />
             {t('mcp.connect.tab.code')}
           </TabsTrigger>
+          <TabsTrigger value="chatgpt">
+            <MessagesSquare />
+            {t('mcp.connect.tab.chatgpt')}
+          </TabsTrigger>
           <TabsTrigger value="other">
             <Plug />
             {t('mcp.connect.tab.other')}
@@ -258,6 +317,9 @@ export const ClientSetupCard = ({ mcp, apiKey, done }: ClientSetupCardProps): Re
         </TabsContent>
         <TabsContent value="code">
           <CodeSetup mcp={mcp} apiKey={apiKey} />
+        </TabsContent>
+        <TabsContent value="chatgpt">
+          <ChatGptSetup mcp={mcp} />
         </TabsContent>
         <TabsContent value="other">
           <OtherSetup mcp={mcp} apiKey={apiKey} />

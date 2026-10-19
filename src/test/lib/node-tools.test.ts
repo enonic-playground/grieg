@@ -661,22 +661,18 @@ describe('audit log', () => {
 });
 
 describe('annotations', () => {
-  it('should mark reads read-only and writes as non-destructive, all closed-world', () => {
+  it('should mark reads read-only and every tool non-destructive and closed-world', () => {
     const annotations = Object.fromEntries(
       createNodeTools(CONFIG).map((t) => [
         t.name,
-        [
-          t.annotations.readOnlyHint,
-          t.annotations.destructiveHint ?? null,
-          t.annotations.openWorldHint,
-        ],
+        [t.annotations.readOnlyHint, t.annotations.destructiveHint, t.annotations.openWorldHint],
       ]),
     );
 
     expect(annotations).toEqual({
-      node_repos: [true, null, false],
-      node_query: [true, null, false],
-      node_get: [true, null, false],
+      node_repos: [true, false, false],
+      node_query: [true, false, false],
+      node_get: [true, false, false],
       node_create: [false, false, false],
       node_update: [false, false, false],
     });

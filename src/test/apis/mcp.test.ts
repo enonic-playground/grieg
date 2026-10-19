@@ -200,6 +200,7 @@ describe('cards', () => {
     expect(toolMeta(tools, 'workflow_list')).toEqual({
       ui: { resourceUri: 'ui://grieg/workflows' },
       'ui/resourceUri': 'ui://grieg/workflows',
+      'openai/outputTemplate': 'ui://grieg/workflows',
     });
     expect(toolMeta(tools, 'workflow_run')).toBeUndefined();
     expect(send(KEY, rpc('resources/read', { uri: 'ui://grieg/crons' })).result).toEqual({
@@ -225,6 +226,43 @@ describe('cards', () => {
     expect(warning.mock.calls.filter(([line]) => String(line).includes('no cards'))).toHaveLength(
       1,
     );
+  });
+});
+
+describe('tool annotations', () => {
+  it('should declare the read-only, destructive and open-world hints of every tool', () => {
+    authenticate.mockReturnValue({ login: 'alice', idProvider: 'system', admin: true });
+    const { tools } = call(KEY, rpc('tools/list')).result as {
+      tools: { name: string; annotations: Record<string, unknown> }[];
+    };
+    const hints = Object.fromEntries(
+      tools.map(({ name, annotations: a }) => [
+        name,
+        [a.readOnlyHint, a.destructiveHint, a.openWorldHint],
+      ]),
+    );
+
+    const read = [true, false, false];
+    const write = [false, false, false];
+    expect(hints).toEqual({
+      content_search: read,
+      content_get: read,
+      content_type_get: read,
+      content_update: [false, true, false],
+      content_create: write,
+      node_repos: read,
+      node_query: read,
+      node_get: read,
+      node_create: write,
+      node_update: write,
+      workflow_list: read,
+      workflow_run: [false, false, true],
+      run_list: read,
+      run_get: read,
+      cron_list: read,
+      cron_set: write,
+      cron_delete: [false, true, false],
+    });
   });
 });
 

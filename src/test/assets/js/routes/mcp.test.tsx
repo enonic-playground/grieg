@@ -382,6 +382,22 @@ describe('client setup', () => {
     expect(curl).not.toContain(PLAINTEXT);
   });
 
+  it('should tell ChatGPT users keys do not work there and give the URL without the key', async () => {
+    const { user } = await generate();
+
+    await user.click(screen.getByRole('tab', { name: 'ChatGPT' }));
+    const setup = getCard('ChatGptSetup');
+
+    expect(within(setup).getByText("ChatGPT can't use personal keys yet")).toBeVisible();
+    const fields = [...setup.querySelectorAll('[data-component="CopyField"]')];
+    expect(fields.map((field) => field.querySelector('code')?.textContent)).toEqual([MCP_URI]);
+    expect(within(setup).getByRole('link', { name: 'README' })).toHaveAttribute(
+      'href',
+      'https://github.com/enonic-playground/grieg#chatgpt',
+    );
+    expect(setup.textContent).not.toContain(PLAINTEXT);
+  });
+
   it('should show the same instructions with a placeholder once the key is no longer shown', async () => {
     mockKeysApi(buildKey(40));
     const { user } = renderRoute({ initialLocation: '/mcp' });
@@ -406,7 +422,7 @@ describe('client setup', () => {
     await user.click(screen.getByRole('button', { name: 'I have saved the key' }));
 
     expect(await screen.findByText('grieg_AAAA…AAAA')).toBeInTheDocument();
-    for (const tab of ['Claude Desktop', 'Claude Code', 'Other clients']) {
+    for (const tab of ['Claude Desktop', 'Claude Code', 'ChatGPT', 'Other clients']) {
       await user.click(screen.getByRole('tab', { name: tab }));
       expect(document.body.textContent).not.toContain(PLAINTEXT);
     }

@@ -40,7 +40,8 @@ export type Implementation = {
 
 export type ToolAnnotations = {
   readOnlyHint: boolean;
-  destructiveHint?: boolean;
+  // Required although MCP makes it optional: ChatGPT lists all three hints as required.
+  destructiveHint: boolean;
   idempotentHint: boolean;
   openWorldHint: boolean;
 };
@@ -228,8 +229,15 @@ function describeTools(tools: Tool[]): JsonObject[] {
     inputSchema,
     outputSchema,
     annotations: { title, ...annotations },
-    // The flat key is the deprecated form that SDK-based hosts still read.
-    ...(ui != null && { _meta: { ui, 'ui/resourceUri': ui.resourceUri } }),
+    // The flat key is the deprecated form that SDK-based hosts still read, and
+    // `openai/outputTemplate` is ChatGPT's alias for the same view.
+    ...(ui != null && {
+      _meta: {
+        ui,
+        'ui/resourceUri': ui.resourceUri,
+        'openai/outputTemplate': ui.resourceUri,
+      },
+    }),
   }));
 }
 
