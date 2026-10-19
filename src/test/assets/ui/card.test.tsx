@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { act, render, screen, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -14,9 +14,10 @@ import type {
   ToolResults,
   WorkflowItem,
 } from '../../../main/resources/assets/ui/shapes';
+import type { App } from '@modelcontextprotocol/ext-apps';
 
 import { Card } from '../../../main/resources/assets/ui/card';
-import { readResult } from '../../../main/resources/assets/ui/host';
+import { createHost, readResult } from '../../../main/resources/assets/ui/host';
 import { toScreen } from '../../../main/resources/assets/ui/shapes';
 
 const ADMIN = 'http://localhost:8080/admin/tool/com.enonic.app.grieg/main/workflows';
@@ -346,6 +347,69 @@ describe('runs card', () => {
   });
 });
 
+describe('failed run actions', () => {
+  const diagnose = () => screen.queryByRole('button', { name: 'Ask Claude to diagnose' });
+  const retry = () => screen.queryByRole('button', { name: 'Retry' });
+
+  it('should ask Claude to diagnose a failed run, naming the workflow and the run', async () => {
+    const { host, user } = renderCard(RUN);
+
+    await user.click(diagnose() as HTMLElement);
+
+    expect(host.ask).toHaveBeenCalledWith(
+      'Diagnose the failed run run-1 of the grieg workflow "Weekly digest" (workflowId wf-1): read the run with run_get and the workflow with workflow_list, explain why it failed, and propose a fix.',
+    );
+    expect(host.callTool).not.toHaveBeenCalled();
+    expect(await screen.findByRole('status')).toHaveTextContent('Asked Claude.');
+  });
+
+  // The card renders only for admins, who may run workflows, so Retry is not gated further.
+  it('should ask Claude to run the workflow again rather than run it', async () => {
+    const { host, user } = renderCard(RUN);
+
+    await user.click(retry() as HTMLElement);
+
+    expect(host.ask).toHaveBeenCalledWith(
+      'Run the grieg workflow "Weekly digest" (workflowId wf-1) again with workflow_run; its run run-1 failed.',
+    );
+    expect(host.callTool).not.toHaveBeenCalled();
+  });
+
+  it('should offer both on an interrupted run', () => {
+    renderCard({ ...RUN, steps: [], error: 'interrupted' });
+
+    expect(diagnose()).toBeInTheDocument();
+    expect(retry()).toBeInTheDocument();
+  });
+
+  it('should offer neither on a done or a running run', () => {
+    const { unmount } = renderCard({ ...RUN, status: 'done', error: null });
+    expect(diagnose()).not.toBeInTheDocument();
+    expect(retry()).not.toBeInTheDocument();
+    unmount();
+
+    renderCard({ ...RUN, status: 'running', finishedAt: null, error: null });
+    expect(diagnose()).not.toBeInTheDocument();
+    expect(retry()).not.toBeInTheDocument();
+  });
+
+  it('should tell the user what to ask when the host rejects the message', async () => {
+    const host = fakeHost();
+    host.ask.mockResolvedValue(false);
+    const { user } = renderCard(RUN, {}, host);
+
+    await user.click(diagnose() as HTMLElement);
+    expect(await screen.findByRole('status')).toHaveTextContent(
+      'Ask Claude to diagnose run run-1 of "Weekly digest".',
+    );
+
+    await user.click(retry() as HTMLElement);
+    expect(await screen.findByRole('status')).toHaveTextContent(
+      'Ask Claude to run "Weekly digest" again.',
+    );
+  });
+});
+
 const RUNNING: RunDetail = {
   ...RUN,
   id: 'run-3',
@@ -474,6 +538,23 @@ describe('runs card timeline', () => {
     await act(() => vi.advanceTimersByTimeAsync(3000));
 
     expect(screen.getByText('outline').closest('details')).toHaveAttribute('open');
+  });
+
+  it('should stop polling after about two minutes and start again on refresh', async () => {
+    vi.useFakeTimers();
+    const { host } = renderCard(RUNNING);
+    host.callTool.mockImplementation(() => Promise.resolve({ ok: true, data: { ...RUNNING } }));
+
+    await act(() => vi.advanceTimersByTimeAsync(41 * 3000));
+    expect(host.callTool).toHaveBeenCalledTimes(40);
+    await act(() => vi.advanceTimersByTimeAsync(30_000));
+    expect(host.callTool).toHaveBeenCalledTimes(40);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
+    await act(() => vi.advanceTimersByTimeAsync(0));
+    expect(host.callTool).toHaveBeenCalledTimes(41);
+    await act(() => vi.advanceTimersByTimeAsync(3000));
+    expect(host.callTool).toHaveBeenCalledTimes(42);
   });
 
   it('should not poll while the card is hidden or after it is gone', async () => {
@@ -1067,5 +1148,23 @@ describe('readResult', () => {
     expect(readResult({ isError: true, content: [{ type: 'text', text: 'No workflow' }] })).toEqual(
       { ok: false, message: 'No workflow' },
     );
+  });
+});
+
+describe('createHost', () => {
+  it('should send a request as a ui/message from the user, false when the host refuses it', async () => {
+    const sendMessage = vi.fn().mockResolvedValue({});
+    const host = createHost({ sendMessage } as unknown as App);
+
+    expect(await host.ask('Run it again')).toBe(true);
+    expect(sendMessage).toHaveBeenCalledWith({
+      role: 'user',
+      content: [{ type: 'text', text: 'Run it again' }],
+    });
+
+    sendMessage.mockResolvedValueOnce({ isError: true });
+    expect(await host.ask('Run it again')).toBe(false);
+    sendMessage.mockRejectedValueOnce(new Error('Not supported'));
+    expect(await host.ask('Run it again')).toBe(false);
   });
 });

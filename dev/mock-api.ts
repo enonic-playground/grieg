@@ -124,6 +124,17 @@ export const runs = new Map<string, MockRun[]>([
         ],
         output: 'The budget passed. Taxes stay as they are.',
       },
+      {
+        id: 'run-seed-3',
+        workflowId: 'wf-1',
+        status: 'failed',
+        trigger: 'manual',
+        user: 'user:system:su',
+        startedAt: '2026-09-09T10:15:00Z',
+        finishedAt: '2026-09-09T10:16:30Z',
+        steps: [{ id: 'outline', output: '- Budget passed\n- Taxes unchanged', ms: 1650 }],
+        error: 'interrupted',
+      },
     ],
   ],
 ]);
