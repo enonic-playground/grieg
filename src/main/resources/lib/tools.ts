@@ -15,6 +15,7 @@ import {
   MAX_COUNT,
   MAX_FORM_DEPTH,
   parseCreateArgs,
+  parseDraft,
   parseGetArgs,
   parseLocalizeArgs,
   parseSearchArgs,
@@ -256,6 +257,20 @@ const OCCURRENCES_SCHEMA = {
   properties: { min: { type: 'integer' }, max: { type: 'integer', description: '0 is unlimited' } },
 };
 
+const DRAFT_SCHEMA = {
+  type: 'object',
+  description:
+    'The item you propose to create, shown to the user as an editable form; same fields as content_create',
+  properties: {
+    parentPath: { type: 'string', description: 'Parent path, e.g. /my-site/articles' },
+    displayName: { type: 'string' },
+    data: { type: 'object', description: 'Proposed field values by name' },
+    error: { type: 'string', description: 'The refusal of a content_create made from this draft' },
+  },
+  required: ['parentPath'],
+  additionalProperties: false,
+};
+
 const FORM_FIELD_SCHEMA = {
   type: 'object',
   properties: {
@@ -302,7 +317,7 @@ function contentInstructions(config: ToolsConfig): string {
     `${find}, change one with content_update, create one with content_create.`,
     paths,
     'content_update changes displayName, language and top-level scalar data fields only. Pass `expectedModifiedTime` from your last read to avoid overwriting someone else.',
-    'Before content_create, call content_type_get for the fields; fix the paths a refusal names and retry. New items land on draft, in progress.',
+    'Before content_create, call content_type_get for the fields; fix the paths a refusal names and retry. When the user should review a new item first, pass your proposal to content_type_get as `draft` and create it only with the values they send back. New items land on draft, in progress.',
     'To translate into a layer (a project with a parent), read the item in the parent and write the translation with content_localize.',
     draftNote(config),
     'Every summary has an `editUrl` to Content Studio; give it to the user when they need to review or publish.',
@@ -472,11 +487,18 @@ export function createContentTools(config: ToolsConfig, editBase: EditBase): Too
     name: 'content_type_get',
     title: 'Read content type',
     description:
-      'List the fields of one content type, e.g. `my.app:article` or `base:folder`, as a flat list of dot paths into data with their input type, occurrences (`max` 0 is unlimited) and input config such as the options of a ComboBox. ' +
-      `Item sets and option sets add a level to the path; an option set's data is \`{ "_selected": ["<option>"], "<option>": {…} }\`. Nesting deeper than ${MAX_FORM_DEPTH} levels is marked \`capped\`. Call it before content_create.`,
+      `List the fields of one content type, e.g. \`my.app:article\` or \`base:folder\`, as a flat list of dot paths into data with their input type, occurrences (\`max\` 0 is unlimited) and input config such as the options of a ComboBox. ` +
+      `Item sets and option sets add a level to the path; an option set's data is \`{ "_selected": ["<option>"], "<option>": {…} }\`. Nesting deeper than ${MAX_FORM_DEPTH} levels is marked \`capped\`. Call it before content_create.${
+        config.readOnly
+          ? ''
+          : ' When a person is in the conversation, pass the item you propose as `draft` before content_create: their client shows it as a form, pre-filled, and they review it and send you the final `content_create` arguments. If content_create then refuses those, call this again with the same draft and the refusal text as `draft.error`, so the form marks the paths it names.'
+      }`,
     inputSchema: {
       type: 'object',
-      properties: { name: { type: 'string', description: 'Content type name, e.g. base:folder' } },
+      properties: {
+        name: { type: 'string', description: 'Content type name, e.g. base:folder' },
+        ...(!config.readOnly && { draft: DRAFT_SCHEMA }),
+      },
       required: ['name'],
       additionalProperties: false,
     },
@@ -491,6 +513,7 @@ export function createContentTools(config: ToolsConfig, editBase: EditBase): Too
         allowChildContent: { type: 'boolean' },
         form: { type: 'array', items: FORM_FIELD_SCHEMA },
         note: { type: 'string', description: 'Where the form was capped' },
+        draft: { ...DRAFT_SCHEMA, description: 'The draft passed in, for the form' },
       },
       required: ['name', 'displayName', 'abstract', 'allowChildContent', 'form'],
     },
@@ -501,10 +524,12 @@ export function createContentTools(config: ToolsConfig, editBase: EditBase): Too
       openWorldHint: false,
     },
     handler: (args) => {
-      const unknown = unknownKeys(args, ['name']);
+      const unknown = unknownKeys(args, config.readOnly ? ['name'] : ['name', 'draft']);
       if (unknown != null) return fail(unknown);
       const name = typeof args.name === 'string' ? args.name.trim() : '';
       if (name === '') return fail('`name` is required: a content type name such as base:folder.');
+      const draft = parseDraft(args.draft);
+      if (!draft.ok) return fail(draft.message);
 
       return inProject(config, undefined, () => {
         const type = contentLib.getType(name);
@@ -525,6 +550,7 @@ export function createContentTools(config: ToolsConfig, editBase: EditBase): Too
           ...(capped.length > 0 && {
             note: `Fields nested deeper than ${MAX_FORM_DEPTH} levels are not listed under: ${capped.join(', ')}. Read an existing item of this type with content_get to see their shape.`,
           }),
+          ...(draft.value != null && { draft: draft.value }),
         });
       });
     },

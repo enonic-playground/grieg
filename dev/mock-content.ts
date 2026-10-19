@@ -195,7 +195,51 @@ const ARTICLE_TYPE: Json = {
       inputType: 'CheckBox',
       occurrences: { min: 0, max: 1 },
     },
-    { path: 'author', kind: 'itemSet', label: 'Author', occurrences: { min: 1, max: 1 } },
+    {
+      path: 'rating',
+      kind: 'input',
+      label: 'Rating',
+      helpText: 'From 0 to 5',
+      inputType: 'Double',
+      occurrences: { min: 0, max: 1 },
+    },
+    {
+      path: 'layout',
+      kind: 'input',
+      label: 'Layout',
+      inputType: 'RadioButton',
+      occurrences: { min: 1, max: 1 },
+      config: {
+        config: {
+          option: [
+            { '@value': 'wide', value: 'Wide' },
+            { '@value': 'narrow', value: 'Narrow' },
+          ],
+        },
+      },
+    },
+    {
+      path: 'publishOn',
+      kind: 'input',
+      label: 'Publish on',
+      inputType: 'Date',
+      occurrences: { min: 0, max: 1 },
+    },
+    {
+      path: 'tastingAt',
+      kind: 'input',
+      label: 'Tasting starts',
+      inputType: 'DateTime',
+      occurrences: { min: 0, max: 1 },
+    },
+    {
+      path: 'bestServedAt',
+      kind: 'input',
+      label: 'Best served at',
+      inputType: 'Time',
+      occurrences: { min: 0, max: 1 },
+    },
+    { path: 'author', kind: 'itemSet', label: 'Author', occurrences: { min: 1, max: 2 } },
     {
       path: 'author.name',
       kind: 'input',

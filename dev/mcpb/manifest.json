@@ -50,7 +50,10 @@
       "description": "Search content by text, or list the children of a path"
     },
     { "name": "content_get", "description": "One content item by id or path" },
-    { "name": "content_type_get", "description": "A content type's fields as dot paths" },
+    {
+      "name": "content_type_get",
+      "description": "A content type's fields as dot paths, or a form to review a new item"
+    },
     {
       "name": "content_update",
       "description": "Change a content item's display name, language or data fields"

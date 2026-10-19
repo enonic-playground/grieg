@@ -6,6 +6,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { Plugin } from 'vite-plus';
 
 import { stampView, type CardView } from '../src/main/resources/lib/cards.ts';
+import { parseDraft } from '../src/main/resources/lib/content-shape.ts';
 import { scheduleName } from '../src/main/resources/lib/schedule.ts';
 import { advance, cronJobs, runs, workflows, type MockRun } from './mock-api.ts';
 import { getContent, getContentType, searchContent } from './mock-content.ts';
@@ -262,9 +263,12 @@ const READ_TOOLS: Record<string, (args: Json) => ToolResult> = {
       ? fail(`No content at \`${String(key)}\`. Use content_search to find it.`)
       : ok(content);
   },
-  content_type_get: ({ name }) => {
+  content_type_get: ({ name, draft }) => {
     const type = getContentType(name);
-    return type == null ? fail(`No content type \`${String(name)}\`.`) : ok(type);
+    if (type == null) return fail(`No content type \`${String(name)}\`.`);
+    const parsed = parseDraft(draft);
+    if (!parsed.ok) return fail(parsed.message);
+    return ok(parsed.value == null ? type : { ...type, draft: parsed.value });
   },
 };
 

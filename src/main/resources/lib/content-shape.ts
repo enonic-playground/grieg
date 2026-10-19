@@ -68,6 +68,11 @@ export type CreateArgs = {
   data: JsonObject;
 };
 
+// `error` is a content_create refusal, so the form can mark the paths it names.
+export type Draft = { parentPath: string; displayName: string; data: JsonObject; error?: string };
+
+const DRAFT_KEYS = ['parentPath', 'displayName', 'data', 'error'];
+
 export type DataValue = Scalar | Scalar[];
 
 export type UpdateArgs = {
@@ -290,6 +295,43 @@ export function parseCreateArgs(args: JsonObject): Parsed<CreateArgs> {
       name: name.value,
       language: language.value,
       data,
+    },
+  };
+}
+
+// A content_create proposal that content_type_get hands back for the card to show as a form.
+export function parseDraft(value: unknown): Parsed<Draft | undefined> {
+  if (value == null) return { ok: true, value: undefined };
+  if (!isObject(value)) {
+    return fail('`draft` must be an object: `{ parentPath, displayName, data }`.');
+  }
+  const extra = Object.keys(value).filter((key) => !DRAFT_KEYS.includes(key));
+  if (extra.length > 0) {
+    return fail(
+      `Unknown \`draft\` key(s): ${extra.join(', ')}. Allowed: ${DRAFT_KEYS.join(', ')}.`,
+    );
+  }
+  const strings: Record<string, string | undefined> = {};
+  for (const key of ['parentPath', 'displayName', 'error']) {
+    const parsed = optionalString(value, key);
+    if (!parsed.ok) return fail(`\`draft.${key}\` must be a string.`);
+    strings[key] = parsed.value;
+  }
+  const { parentPath, displayName, error } = strings;
+  if (parentPath == null || !parentPath.startsWith('/')) {
+    return fail('`draft.parentPath` is required and must start with `/`, e.g. `/my-site`.');
+  }
+  const data = value.data ?? {};
+  if (!isObject(data)) return fail('`draft.data` must be an object of field names to values.');
+  const invalid = invalidData(data, 'draft.data');
+  if (invalid != null) return fail(invalid);
+  return {
+    ok: true,
+    value: {
+      parentPath: normalizeKey(parentPath),
+      displayName: displayName ?? '',
+      data,
+      ...(error != null && { error }),
     },
   };
 }
@@ -558,21 +600,38 @@ export type FormField = {
 
 export type FlatForm = { fields: FormField[]; capped: string[] };
 
-type NamedFormItem = Exclude<FormItem, { formItemType: 'Layout' | 'FormFragment' }>;
+type Range = { minimum: number; maximum: number };
+
+// What the occurrence rules read of a form item. lib-content's FormItem fits it, and so does the
+// tree the MCP card rebuilds from content_type_get's flat form to check a draft.
+export type CheckedItem =
+  | { formItemType: 'Input'; name: string; occurrences: Range }
+  | { formItemType: 'ItemSet'; name: string; occurrences: Range; items?: CheckedItem[] }
+  | {
+      formItemType: 'OptionSet';
+      name: string;
+      occurrences: Range;
+      selection: Range;
+      options?: { name: string; items?: CheckedItem[] }[];
+    }
+  | { formItemType: 'Layout'; items?: CheckedItem[] }
+  | { formItemType: 'FormFragment' };
+
+type Named<T> = Exclude<T, { formItemType: 'Layout' | 'FormFragment' }>;
 
 const INPUT_KEYS = ['formItemType', 'name', 'label', 'helpText', 'inputType', 'occurrences'];
 
-function occurrencesOf(value: { minimum: number; maximum: number }): Occurrences {
+function occurrencesOf(value: Range): Occurrences {
   return { min: value.minimum, max: value.maximum };
 }
 
 // Layouts (field sets) group inputs visually without adding a level to the data, and form
 // fragments arrive already inlined.
-function namedItems(items: FormItem[]): NamedFormItem[] {
-  return items.flatMap((item) => {
-    if (item.formItemType === 'Layout') return namedItems(item.items ?? []);
+function namedItems<T extends CheckedItem>(items: T[]): Named<T>[] {
+  return items.flatMap((item): Named<T>[] => {
+    if (item.formItemType === 'Layout') return namedItems((item.items ?? []) as T[]);
     if (item.formItemType === 'FormFragment') return [];
-    return [item];
+    return [item as Named<T>];
   });
 }
 
@@ -703,7 +762,11 @@ function selectionProblem(path: string, selected: number, selection: Occurrences
 
 // Mirrors XP's occurrence rules, so a create that XP would refuse without a message names the
 // offending paths. XP still validates everything else on create.
-export function checkOccurrences(items: FormItem[], data: JsonObject, parent = 'data'): string[] {
+export function checkOccurrences(
+  items: CheckedItem[],
+  data: JsonObject,
+  parent = 'data',
+): string[] {
   const problems: string[] = [];
   for (const item of namedItems(items)) {
     const path = `${parent}.${item.name}`;

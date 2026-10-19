@@ -167,7 +167,12 @@ const ARTICLE_TYPE: ContentType = {
 type FakeHost = { [K in keyof CardHost]: ReturnType<typeof vi.fn> };
 
 function fakeHost(): FakeHost {
-  return { callTool: vi.fn(), ask: vi.fn().mockResolvedValue(true), openLink: vi.fn() };
+  return {
+    callTool: vi.fn(),
+    ask: vi.fn().mockResolvedValue(true),
+    share: vi.fn().mockResolvedValue(true),
+    openLink: vi.fn(),
+  };
 }
 
 function renderCard(data: unknown, args: JsonObject = {}, host = fakeHost()) {
@@ -855,6 +860,201 @@ describe('content card', () => {
     expect(within(author).getByText('Any number')).toBeInTheDocument();
     expect(within(name).getByText('author.name')).toBeInTheDocument();
     expect(within(name).getByText('Optional')).toBeInTheDocument();
+  });
+});
+
+const FORM_TYPE: ContentType = {
+  ...ARTICLE_TYPE,
+  form: [
+    {
+      path: 'title',
+      kind: 'input',
+      label: 'Title',
+      inputType: 'TextLine',
+      occurrences: { min: 1, max: 1 },
+    },
+    {
+      path: 'tags',
+      kind: 'input',
+      label: 'Tags',
+      inputType: 'Tag',
+      occurrences: { min: 0, max: 0 },
+    },
+    ...ARTICLE_TYPE.form,
+    {
+      path: 'cover',
+      kind: 'input',
+      label: 'Cover',
+      inputType: 'ImageSelector',
+      occurrences: { min: 0, max: 1 },
+    },
+  ],
+};
+
+function draftOf(data: JsonObject, error?: string): ContentType {
+  return {
+    ...FORM_TYPE,
+    draft: {
+      parentPath: '/site/articles',
+      displayName: 'Cold brew',
+      data,
+      ...(error != null && { error }),
+    },
+  };
+}
+
+const PROPOSED = {
+  title: 'Cold brew',
+  tags: ['coffee', 'summer'],
+  category: 'guide',
+  author: { name: 'Ingrid' },
+  cover: 'image-1',
+};
+
+describe('content form card', () => {
+  it('should open pre-filled with what Claude proposed, without a refresh', () => {
+    renderCard(draftOf(PROPOSED));
+
+    expect(screen.getByRole('heading', { name: 'New Article' })).toBeInTheDocument();
+    expect(screen.getByLabelText('Display name')).toHaveValue('Cold brew');
+    expect(screen.getByLabelText('Location')).toHaveValue('/site/articles');
+    expect(screen.getByLabelText('Title')).toHaveValue('Cold brew');
+    expect(screen.getByLabelText('Tags 2')).toHaveValue('summer');
+    expect(screen.getByLabelText('Category')).toHaveValue('guide');
+    expect(screen.getByLabelText('Name')).toHaveValue('Ingrid');
+    expect(screen.getByText('image-1')).toBeInTheDocument();
+    expect(screen.getByText('Edit in Content Studio once it is created.')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Refresh' })).toBeNull();
+  });
+
+  it('should send the edited values as model context and ask Claude to create them', async () => {
+    const { host, user } = renderCard(draftOf(PROPOSED));
+
+    await user.clear(screen.getByLabelText('Title'));
+    await user.type(screen.getByLabelText('Title'), 'Cold brew, step by step');
+    await user.click(screen.getByRole('button', { name: 'Remove Tags 1' }));
+    await user.click(screen.getByRole('button', { name: 'Add tags' }));
+    await user.type(screen.getByLabelText('Tags 2'), 'jar');
+    await user.click(screen.getByRole('button', { name: 'Add author' }));
+    await user.type(screen.getAllByLabelText('Name')[1], 'Ola');
+    await user.click(screen.getByRole('button', { name: 'Create' }));
+
+    const args = {
+      parentPath: '/site/articles',
+      contentType: 'com.example.news:article',
+      displayName: 'Cold brew',
+      data: {
+        title: 'Cold brew, step by step',
+        tags: ['summer', 'jar'],
+        category: 'guide',
+        author: [{ name: 'Ingrid' }, { name: 'Ola' }],
+        cover: 'image-1',
+      },
+    };
+    expect(host.share).toHaveBeenCalledWith(expect.stringContaining('```json'), {
+      content_create: args,
+    });
+    expect(JSON.parse(host.share.mock.calls[0][0].split('```json\n')[1].split('\n```')[0])).toEqual(
+      args,
+    );
+    expect(host.ask).toHaveBeenCalledWith(
+      'Create the Article "Cold brew" under /site/articles with content_create, using exactly the arguments I reviewed in the form; they are in your context.',
+    );
+    expect(host.callTool).not.toHaveBeenCalled();
+    expect(await screen.findByRole('button', { name: 'Sent' })).toBeDisabled();
+    expect(
+      screen.getByText('Asked Claude. Approve the tool call to go ahead.'),
+    ).toBeInTheDocument();
+  });
+
+  it('should put the arguments in the message when the host takes no model context', async () => {
+    const host = fakeHost();
+    host.share.mockResolvedValue(false);
+    const { user } = renderCard(draftOf(PROPOSED), {}, host);
+
+    await user.click(screen.getByRole('button', { name: 'Create' }));
+
+    expect(host.ask).toHaveBeenCalledWith(expect.stringContaining('"title": "Cold brew"'));
+  });
+
+  it('should hold Create until the required fields are filled', async () => {
+    const { host, user } = renderCard(draftOf({ ...PROPOSED, title: '' }));
+
+    expect(screen.getByLabelText('Title')).toHaveAttribute('aria-invalid', 'true');
+    expect(screen.getByText('Needs at least 1 value(s), got 0.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Create' })).toBeDisabled();
+    expect(screen.getByText('Fix 1 problem to create it.')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Create' }));
+    expect(host.share).not.toHaveBeenCalled();
+    expect(host.ask).not.toHaveBeenCalled();
+
+    await user.type(screen.getByLabelText('Title'), 'Cold brew');
+
+    expect(screen.getByRole('button', { name: 'Create' })).toBeEnabled();
+  });
+
+  it('should mark the paths a content_create refusal names until the user edits', async () => {
+    const { user } = renderCard(
+      draftOf(
+        { ...PROPOSED, category: 'recipe' },
+        'Nothing was created: the data does not fit `com.example.news:article`. `data.category` must be one of the options. `data.media._selected` must name 1 option(s), got 0.',
+      ),
+    );
+
+    expect(screen.getByRole('alert')).toHaveTextContent('content_create refused the last attempt');
+    expect(screen.getByLabelText('Category')).toHaveAttribute('aria-invalid', 'true');
+    expect(screen.getByText('Must be one of the options.')).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: 'recipe (not an option)' })).toBeInTheDocument();
+    // `media` is not in this form, so its problem is listed at the top.
+    expect(screen.getByText('media')).toBeInTheDocument();
+
+    await user.selectOptions(screen.getByLabelText('Category'), 'guide');
+
+    expect(screen.queryByText('Must be one of the options.')).toBeNull();
+    expect(screen.queryByText('media')).toBeNull();
+    expect(screen.getByRole('alert')).toBeInTheDocument();
+  });
+
+  it('should show draft keys the content type does not have, since they are sent too', () => {
+    renderCard(draftOf({ ...PROPOSED, stray: 'surprise', author: { name: 'Ingrid', age: 41 } }));
+
+    expect(screen.getByText('stray')).toBeInTheDocument();
+    expect(screen.getByText('surprise')).toBeInTheDocument();
+    expect(screen.getByText('age')).toBeInTheDocument();
+    expect(screen.getAllByText('Not in this content type')).toHaveLength(2);
+  });
+
+  it('should let the user remove the extra values Claude put in a single field', async () => {
+    const { user } = renderCard(draftOf({ ...PROPOSED, title: ['One', 'Two'] }));
+
+    expect(screen.getByRole('button', { name: 'Create' })).toBeDisabled();
+    await user.click(screen.getByRole('button', { name: 'Remove Title 2' }));
+
+    expect(screen.getByLabelText('Title')).toHaveValue('One');
+    expect(screen.queryByRole('button', { name: /Remove Title/ })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Create' })).toBeEnabled();
+  });
+
+  it('should keep Create available and say what to ask when the host rejects the message', async () => {
+    const host = fakeHost();
+    host.ask.mockResolvedValue(false);
+    const { user } = renderCard(draftOf(PROPOSED), {}, host);
+
+    await user.click(screen.getByRole('button', { name: 'Create' }));
+
+    expect(
+      await screen.findByText(
+        'Ask Claude to create the Article "Cold brew" with the values in the form.',
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Create' })).toBeEnabled();
+  });
+
+  it('should render proposed values as text, never as markup', () => {
+    renderCard(draftOf({ ...PROPOSED, cover: '<img src=x onerror="alert(1)">' }));
+
+    expect(screen.getByText('<img src=x onerror="alert(1)">')).toBeInTheDocument();
+    expect(document.querySelector('img')).toBeNull();
   });
 });
 

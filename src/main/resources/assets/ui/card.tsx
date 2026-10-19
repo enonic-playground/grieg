@@ -11,6 +11,7 @@ import { cn } from '../js/lib/utils';
 import { CardContext } from './card-context';
 import { inferTool, toScreen } from './shapes';
 import { ContentSearchView, ContentTypeView, ContentView } from './views/content';
+import { ContentFormView } from './views/content-form';
 import { CronsView } from './views/crons';
 import { NodeQueryView, NodeView, ReposView } from './views/nodes';
 import { RunDetailView, RunListView } from './views/runs';
@@ -75,8 +76,14 @@ function headingOf(screen: Screen): Heading {
         subtitle: screen.data.path,
       };
     case 'content_type_get':
-      return { title: screen.data.displayName, subtitle: screen.data.name };
+      return screen.data.draft == null
+        ? { title: screen.data.displayName, subtitle: screen.data.name }
+        : { title: `New ${screen.data.displayName}`, subtitle: screen.data.name };
   }
+}
+
+function isForm(screen: Screen): boolean {
+  return screen.tool === 'content_type_get' && screen.data.draft != null;
 }
 
 const ScreenBody = ({ screen }: { screen: Screen }): ReactElement => {
@@ -100,7 +107,11 @@ const ScreenBody = ({ screen }: { screen: Screen }): ReactElement => {
     case 'content_get':
       return <ContentView data={screen.data} />;
     case 'content_type_get':
-      return <ContentTypeView data={screen.data} />;
+      return screen.data.draft == null ? (
+        <ContentTypeView data={screen.data} />
+      ) : (
+        <ContentFormView type={screen.data} draft={screen.data.draft} />
+      );
   }
 };
 
@@ -169,19 +180,17 @@ export const Card = ({ host, locale, initial }: CardProps): ReactElement => {
 
   // One request at a time, so a double click does not ask Claude twice.
   const ask = useCallback(
-    (request: string, hint: string) => {
-      if (asking.current) return;
+    async (request: string, hint: string) => {
+      if (asking.current) return false;
       asking.current = true;
       setNotice(null);
-      void host.ask(request).then((sent) => {
-        asking.current = false;
-        setNotice({
-          tone: 'info',
-          text: sent
-            ? 'Asked Claude. Approve the tool call to go ahead.'
-            : `Ask Claude to ${hint}.`,
-        });
+      const sent = await host.ask(request);
+      asking.current = false;
+      setNotice({
+        tone: 'info',
+        text: sent ? 'Asked Claude. Approve the tool call to go ahead.' : `Ask Claude to ${hint}.`,
       });
+      return sent;
     },
     [host],
   );
@@ -238,17 +247,20 @@ export const Card = ({ host, locale, initial }: CardProps): ReactElement => {
               <ExternalLink />
             </Button>
           )}
-          <Button
-            size="icon"
-            variant="ghost"
-            className="-mr-2 size-7"
-            aria-label="Refresh"
-            title="Refresh"
-            disabled={busy}
-            onClick={() => void load(screen.tool, screen.args, screen.title, true)}
-          >
-            <RefreshCw className={cn(busy && 'animate-spin')} />
-          </Button>
+          {/* Reloading a form would throw away the user's edits. */}
+          {!isForm(screen) && (
+            <Button
+              size="icon"
+              variant="ghost"
+              className="-mr-2 size-7"
+              aria-label="Refresh"
+              title="Refresh"
+              disabled={busy}
+              onClick={() => void load(screen.tool, screen.args, screen.title, true)}
+            >
+              <RefreshCw className={cn(busy && 'animate-spin')} />
+            </Button>
+          )}
         </header>
         {notice != null && (
           <p

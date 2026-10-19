@@ -9,6 +9,9 @@ export type CardHost = {
   callTool: (name: string, args: JsonObject) => Promise<ToolCall>;
   // `false` when the host refused or could not deliver the message.
   ask: (request: string) => Promise<boolean>;
+  // Puts what the user settled on into the model context for the next message; `false` when
+  // the host does not take it.
+  share: (text: string, data: JsonObject) => Promise<boolean>;
   openLink: (url: string) => void;
 };
 
@@ -52,6 +55,18 @@ export function createHost(app: App): CardHost {
           content: [{ type: 'text', text: request }],
         });
         return result.isError !== true;
+      } catch {
+        return false;
+      }
+    },
+    share: async (text, data) => {
+      if (app.getHostCapabilities()?.updateModelContext == null) return false;
+      try {
+        await app.updateModelContext({
+          content: [{ type: 'text', text }],
+          structuredContent: data,
+        });
+        return true;
       } catch {
         return false;
       }

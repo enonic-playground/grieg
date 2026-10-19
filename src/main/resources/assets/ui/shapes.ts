@@ -141,6 +141,9 @@ export type FormField = {
   capped?: boolean;
 };
 
+// What Claude proposes to create; `error` is the refusal of a content_create made from it.
+export type Draft = { parentPath: string; displayName: string; data: JsonObject; error?: string };
+
 export type ContentType = {
   name: string;
   displayName: string;
@@ -150,6 +153,7 @@ export type ContentType = {
   allowChildContent: boolean;
   form: FormField[];
   note?: string;
+  draft?: Draft;
 };
 
 export type ToolResults = {
