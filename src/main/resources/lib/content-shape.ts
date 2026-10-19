@@ -60,6 +60,7 @@ export type SearchArgs = Page & {
 export type GetArgs = { project?: string; key: string; fields?: string[]; include: Subtree[] };
 
 export type CreateArgs = {
+  project?: string;
   parentPath: string;
   contentType: string;
   displayName: string;
@@ -69,9 +70,15 @@ export type CreateArgs = {
 };
 
 // `error` is a content_create refusal, so the form can mark the paths it names.
-export type Draft = { parentPath: string; displayName: string; data: JsonObject; error?: string };
+export type Draft = {
+  project?: string;
+  parentPath: string;
+  displayName: string;
+  data: JsonObject;
+  error?: string;
+};
 
-const DRAFT_KEYS = ['parentPath', 'displayName', 'data', 'error'];
+const DRAFT_KEYS = ['project', 'parentPath', 'displayName', 'data', 'error'];
 
 export type DataValue = Scalar | Scalar[];
 
@@ -253,6 +260,7 @@ function invalidData(value: unknown, path: string): string | undefined {
 
 export function parseCreateArgs(args: JsonObject): Parsed<CreateArgs> {
   const unknown = unknownKeys(args, [
+    'project',
     'parentPath',
     'contentType',
     'displayName',
@@ -262,6 +270,8 @@ export function parseCreateArgs(args: JsonObject): Parsed<CreateArgs> {
   ]);
   if (unknown != null) return fail(unknown);
 
+  const project = parseProject(args);
+  if (!project.ok) return project;
   const parentPath = optionalString(args, 'parentPath');
   if (!parentPath.ok) return parentPath;
   if (parentPath.value == null || !parentPath.value.startsWith('/')) {
@@ -289,6 +299,7 @@ export function parseCreateArgs(args: JsonObject): Parsed<CreateArgs> {
   return {
     ok: true,
     value: {
+      project: project.value,
       parentPath: normalizeKey(parentPath.value),
       contentType: contentType.value,
       displayName: displayName.value,
@@ -303,7 +314,7 @@ export function parseCreateArgs(args: JsonObject): Parsed<CreateArgs> {
 export function parseDraft(value: unknown): Parsed<Draft | undefined> {
   if (value == null) return { ok: true, value: undefined };
   if (!isObject(value)) {
-    return fail('`draft` must be an object: `{ parentPath, displayName, data }`.');
+    return fail('`draft` must be an object: `{ project?, parentPath, displayName, data }`.');
   }
   const extra = Object.keys(value).filter((key) => !DRAFT_KEYS.includes(key));
   if (extra.length > 0) {
@@ -317,6 +328,8 @@ export function parseDraft(value: unknown): Parsed<Draft | undefined> {
     if (!parsed.ok) return fail(`\`draft.${key}\` must be a string.`);
     strings[key] = parsed.value;
   }
+  const project = parseProject(value);
+  if (!project.ok) return fail(project.message.replace('`project`', '`draft.project`'));
   const { parentPath, displayName, error } = strings;
   if (parentPath == null || !parentPath.startsWith('/')) {
     return fail('`draft.parentPath` is required and must start with `/`, e.g. `/my-site`.');
@@ -328,6 +341,7 @@ export function parseDraft(value: unknown): Parsed<Draft | undefined> {
   return {
     ok: true,
     value: {
+      ...(project.value != null && { project: project.value }),
       parentPath: normalizeKey(parentPath),
       displayName: displayName ?? '',
       data,

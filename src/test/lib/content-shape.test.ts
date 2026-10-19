@@ -440,6 +440,10 @@ describe('parseCreateArgs', () => {
       '`data.set.x` must be',
     ],
     [{ parentPath: '/', contentType: 'a:b', displayName: 'A', valid: true }, 'Unknown argument'],
+    [
+      { project: 'No', parentPath: '/', contentType: 'a:b', displayName: 'A' },
+      '`project` must be a project name',
+    ],
   ])('should reject %j', (args, message) => {
     const parsed = parseCreateArgs(args);
 

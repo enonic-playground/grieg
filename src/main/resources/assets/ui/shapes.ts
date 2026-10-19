@@ -142,7 +142,13 @@ export type FormField = {
 };
 
 // What Claude proposes to create; `error` is the refusal of a content_create made from it.
-export type Draft = { parentPath: string; displayName: string; data: JsonObject; error?: string };
+export type Draft = {
+  project?: string;
+  parentPath: string;
+  displayName: string;
+  data: JsonObject;
+  error?: string;
+};
 
 export type ContentType = {
   name: string;

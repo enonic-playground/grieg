@@ -343,6 +343,7 @@ export function problemKeys(nodes: FormNode[], values: Values, prefix = ''): str
 //
 
 export type CreateArguments = {
+  project?: string;
   parentPath: string;
   contentType: string;
   displayName: string;
@@ -355,8 +356,10 @@ export function createArguments(
   type: ContentType,
   header: Header,
   data: JsonObject,
+  project?: string,
 ): CreateArguments {
   return {
+    ...(project != null && { project }),
     parentPath: header.parentPath.trim(),
     contentType: type.name,
     displayName: header.displayName.trim(),
@@ -383,6 +386,7 @@ export function contextText(type: ContentType, args: CreateArguments): string {
 
 // Inlines the arguments when the host would not take them as model context.
 export function createMessage(type: ContentType, args: CreateArguments, shared: boolean): string {
-  const ask = `Create the ${type.displayName} "${args.displayName}" under ${args.parentPath} with content_create, using exactly the arguments I reviewed in the form`;
+  const where = args.project == null ? '' : ` in project ${args.project}`;
+  const ask = `Create the ${type.displayName} "${args.displayName}" under ${args.parentPath}${where} with content_create, using exactly the arguments I reviewed in the form`;
   return shared ? `${ask}; they are in your context.` : `${ask}:\n${json(args)}`;
 }
