@@ -1,5 +1,5 @@
 // Says a cron expression in words, for the forms schedules actually use. Anything else returns
-// `undefined`, and the card shows the raw expression instead.
+// `undefined`, and callers show the raw expression instead.
 
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 const SHORT_DAYS = DAYS.map((day) => day.slice(0, 3));

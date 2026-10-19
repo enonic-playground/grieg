@@ -129,7 +129,7 @@ export const TableCell = ({ ref, className, ...props }: ComponentProps<'td'>): R
   return (
     <td
       ref={ref}
-      className={cn('px-4 py-2 align-middle font-mono [&:has([role=checkbox])]:pr-0', className)}
+      className={cn('px-4 py-2 align-middle [&:has([role=checkbox])]:pr-0', className)}
       {...props}
     />
   );

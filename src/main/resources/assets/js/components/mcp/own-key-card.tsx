@@ -6,7 +6,8 @@ import type { ApiError } from '../../types/api';
 import type { OwnKey } from './use-own-key';
 import type { ReactElement } from 'react';
 
-import { formatDate, formatDateTime, getExpiry } from '../../lib/expiry';
+import { getExpiry } from '../../lib/expiry';
+import { date, dateTime } from '../../lib/format';
 import { cn } from '../../lib/utils';
 import { PageError, PageSkeleton } from '../page';
 import { Button } from '../ui/button';
@@ -33,10 +34,10 @@ const KeyDetails = ({ info }: KeyDetailsProps): ReactElement => {
       <dt className="text-muted-foreground">{t('mcp.key.field.key')}</dt>
       <dd className="font-mono">{info.display}</dd>
       <dt className="text-muted-foreground">{t('mcp.key.field.created')}</dt>
-      <dd>{formatDate(info.created, i18n.language)}</dd>
+      <dd>{date(info.created, i18n.language)}</dd>
       <dt className="text-muted-foreground">{t('mcp.key.field.expires')}</dt>
       <dd>
-        {formatDate(info.expires, i18n.language)}{' '}
+        {date(info.expires, i18n.language)}{' '}
         <span
           data-soon={soon || undefined}
           className={cn(soon ? 'text-warning font-semibold' : 'text-muted-foreground')}
@@ -45,9 +46,7 @@ const KeyDetails = ({ info }: KeyDetailsProps): ReactElement => {
         </span>
       </dd>
       <dt className="text-muted-foreground">{t('mcp.key.field.lastUsed')}</dt>
-      <dd>
-        {info.lastUsed != null ? formatDateTime(info.lastUsed, i18n.language) : t('mcp.key.never')}
-      </dd>
+      <dd>{info.lastUsed != null ? dateTime(info.lastUsed, i18n.language) : t('mcp.key.never')}</dd>
     </dl>
   );
 };
@@ -102,7 +101,7 @@ export const OwnKeyCard = ({ ownKey }: OwnKeyCardProps): ReactElement => {
       return (
         <div className="flex flex-col items-start gap-3">
           <p className="text-sm">
-            {t('mcp.key.expired', { date: formatDate(data.expires, i18n.language) })}
+            {t('mcp.key.expired', { date: date(data.expires, i18n.language) })}
           </p>
           {generateButton}
         </div>

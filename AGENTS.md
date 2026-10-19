@@ -70,9 +70,11 @@ phrases), which the React bundle reads at boot.
 The `ui` target builds the MCP Apps card from `assets/ui/` into one self-contained file,
 `build/resources/main/ui/card.html`, with `vite-plugin-singlefile`. It sits outside `assets/`
 so XP never serves it, and `processResources` skips `assets/ui/**`. The card reuses the admin
-`Button` and `cn`, and maps the admin token names onto the host's MCP Apps style variables in
-`card.css`, so it follows the host theme. All values render as React text: no
-`dangerouslySetInnerHTML`, no URLs or images from data, no network.
+`Button` and `cn`, and shares the date, duration and user formatting (`js/lib/format.ts`) and
+`describeCron` (`js/lib/cron.ts`) with the admin app, so both say a value the same way. It maps
+the admin token names onto the host's MCP Apps style variables in `card.css`, so it follows the
+host theme. All values render as React text: no `dangerouslySetInnerHTML`, no URLs or images
+from data, no network.
 
 - **ext-apps line:** `@modelcontextprotocol/ext-apps` 2.x with `@modelcontextprotocol/client`
   and `@modelcontextprotocol/core` 2.x (and `zod` 4) as its peers. Do not add

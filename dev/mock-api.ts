@@ -7,7 +7,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { Plugin } from 'vite-plus';
 
 import { scheduleInputError, scheduleName } from '../src/main/resources/lib/schedule.ts';
-import { validateSteps } from '../src/main/resources/lib/steps.ts';
+import { renderPrompt, validateSteps } from '../src/main/resources/lib/steps.ts';
 
 // In-memory stand-ins for the XP server APIs, so the React app runs without a sandbox.
 // The shapes here are the contract the real `apis/*` controllers owe the client.
@@ -137,7 +137,8 @@ export function advance(run: MockRun): void {
   const finished = Math.min(Math.floor(elapsed / MOCK_STEP_MS), steps.length);
   for (let index = run.steps.length; index < finished; index += 1) {
     const step = steps[index];
-    const prompt = step.config?.prompt ?? '';
+    const outputs = new Map(run.steps.map((done) => [done.id, done.output ?? '']));
+    const prompt = renderPrompt(step.config?.prompt ?? '', outputs);
     if (/\bfail\b/i.test(prompt)) {
       run.steps.push({ id: step.id, error: 'Mock step failed as asked', ms: MOCK_STEP_MS });
       run.status = 'failed';

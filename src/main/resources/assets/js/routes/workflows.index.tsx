@@ -7,9 +7,9 @@ import { useTranslation } from 'react-i18next';
 import type { ReactElement } from 'react';
 
 import { Page, PageError, PageSkeleton } from '../components/page';
-import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
 import { EmptyState } from '../components/ui/empty-state';
+import { RelativeTime } from '../components/ui/relative-time';
 import {
   Table,
   TableBody,
@@ -19,6 +19,8 @@ import {
   TableRow,
 } from '../components/ui/table';
 import { CreateWorkflowCard } from '../components/workflows/create-workflow-card';
+import { ScheduleState } from '../components/workflows/schedule-state';
+import { cronJobsQueryOptions } from '../lib/api/crons';
 import { workflowsQueryOptions } from '../lib/api/workflows';
 
 const WORKFLOWS_PAGE_NAME = 'WorkflowsPage';
@@ -26,6 +28,7 @@ const WORKFLOWS_PAGE_NAME = 'WorkflowsPage';
 const WorkflowsPage = (): ReactElement => {
   const { t } = useTranslation();
   const { data, isPending, error } = useQuery(workflowsQueryOptions());
+  const { data: jobs, error: jobsError } = useQuery(cronJobsQueryOptions());
   const [creating, setCreating] = useState(false);
 
   if (isPending) return <PageSkeleton />;
@@ -66,7 +69,7 @@ const WorkflowsPage = (): ReactElement => {
           <TableRow>
             <TableHead>{t('workflows.column.name')}</TableHead>
             <TableHead>{t('workflows.column.steps')}</TableHead>
-            <TableHead>{t('workflows.column.state')}</TableHead>
+            <TableHead>{t('workflows.column.schedule')}</TableHead>
             <TableHead>{t('workflows.column.modified')}</TableHead>
           </TableRow>
         </TableHeader>
@@ -82,13 +85,21 @@ const WorkflowsPage = (): ReactElement => {
                   {workflow.displayName}
                 </Link>
               </TableCell>
-              <TableCell>{workflow.steps.length}</TableCell>
+              <TableCell className="tabular-nums">{workflow.steps.length}</TableCell>
               <TableCell>
-                <Badge variant={workflow.enabled ? 'default' : 'outline'}>
-                  {t(workflow.enabled ? 'common.state.enabled' : 'common.state.disabled')}
-                </Badge>
+                {jobs == null && jobsError != null ? (
+                  <span className="text-muted-foreground" title={t('common.state.error')}>
+                    -
+                  </span>
+                ) : (
+                  <ScheduleState
+                    job={jobs && (jobs.find((job) => job.workflowId === workflow.id) ?? null)}
+                  />
+                )}
               </TableCell>
-              <TableCell>{workflow.modifiedAt}</TableCell>
+              <TableCell>
+                <RelativeTime iso={workflow.modifiedAt} />
+              </TableCell>
             </TableRow>
           ))}
         </TableBody>

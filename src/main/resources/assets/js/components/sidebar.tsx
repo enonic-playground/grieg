@@ -33,6 +33,17 @@ const NAV_ITEMS: NavItem[] = [
 // ? with px-1.5 (6px) padding on each side: 6 + 32 + 6 = 44.
 const COLLAPSED_WIDTH = 'w-[45px]';
 
+const GriegMark = ({ className }: { className?: string }): ReactElement => (
+  <svg viewBox="0 0 20 20" aria-hidden className={cn('text-primary', className)}>
+    <rect width="20" height="20" rx="5" fill="currentColor" />
+    <g fill="hsl(var(--primary-foreground))">
+      <ellipse cx="7.6" cy="14" rx="2.7" ry="2.1" transform="rotate(-20 7.6 14)" />
+      <rect x="9.3" y="4" width="1.6" height="10" rx="0.8" />
+      <path d="M10.1 4c1.8.5 4.4 1.6 4.4 4.4-.9-1.3-2.4-1.8-4.4-1.9Z" />
+    </g>
+  </svg>
+);
+
 export type SidebarProps = {
   className?: string;
 };
@@ -67,7 +78,7 @@ export const Sidebar = ({ className }: SidebarProps): ReactElement => {
       <div className="border-border flex h-12 shrink-0 items-center gap-2 overflow-hidden border-b px-1.5">
         {!collapsed && (
           <>
-            <div className="bg-primary size-5 shrink-0 rounded" />
+            <GriegMark className="size-5 shrink-0" />
             <span className="text-foreground flex-1 truncate text-sm font-bold tracking-tight">
               {t('common.appName')}
             </span>

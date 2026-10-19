@@ -6,7 +6,8 @@ import type { ApiError } from '../../types/api';
 import type { ReactElement } from 'react';
 
 import { allKeysQueryOptions, KEYS_QUERY_KEY, revokeKey } from '../../lib/api/keys';
-import { formatDate, formatDateTime, getExpiry } from '../../lib/expiry';
+import { getExpiry } from '../../lib/expiry';
+import { date, dateTime } from '../../lib/format';
 import { PageError, PageSkeleton } from '../page';
 import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
@@ -54,19 +55,19 @@ export const AllKeysCard = (): ReactElement => {
         <TableBody>
           {data.map((key) => (
             <TableRow key={key.owner}>
-              <TableCell className="font-mono">{key.owner}</TableCell>
+              <TableCell>{key.owner}</TableCell>
               <TableCell className="font-mono">{key.display}</TableCell>
-              <TableCell>{formatDate(key.created, i18n.language)}</TableCell>
+              <TableCell>{date(key.created, i18n.language)}</TableCell>
               <TableCell>
                 <span className="inline-flex items-center gap-1.5">
-                  {formatDate(key.expires, i18n.language)}
+                  {date(key.expires, i18n.language)}
                   {getExpiry(key.expires).expired && (
                     <Badge variant="outline">{t('mcp.all.expired')}</Badge>
                   )}
                 </span>
               </TableCell>
               <TableCell>
-                {key.lastUsed != null ? formatDateTime(key.lastUsed, i18n.language) : '-'}
+                {key.lastUsed != null ? dateTime(key.lastUsed, i18n.language) : '-'}
               </TableCell>
               <TableCell className="text-right">
                 <Button size="sm" variant="ghost" onClick={() => setOwner(key.owner)}>

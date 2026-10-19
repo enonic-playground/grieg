@@ -13,13 +13,3 @@ export function getExpiry(expires: string, now: number = Date.now()): Expiry {
   const daysLeft = expired ? 0 : Math.ceil(msLeft / DAY_MS);
   return { expired, daysLeft, soon: !expired && daysLeft <= WARNING_DAYS };
 }
-
-export function formatDate(iso: string, locale: string): string {
-  return new Intl.DateTimeFormat(locale, { dateStyle: 'medium' }).format(new Date(iso));
-}
-
-export function formatDateTime(iso: string, locale: string): string {
-  return new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeStyle: 'short' }).format(
-    new Date(iso),
-  );
-}
