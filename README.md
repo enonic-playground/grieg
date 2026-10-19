@@ -31,8 +31,9 @@ pnpm check          # lint + type-check + tests
 Create `$XP_HOME/config/com.enonic.app.grieg.cfg`:
 
 ```properties
-# Content context the MCP tools operate in. With `mcp.branch = master`, edits made with a
-# personal key go live at once under the key owner's name.
+# Content context the MCP tools operate in. `mcp.project` is the default: content_search,
+# content_get and content_update also take a `project` the acting user holds a role in. With
+# `mcp.branch = master`, edits made with a personal key go live at once under the key owner's name.
 mcp.project = default
 mcp.branch = draft
 
@@ -60,8 +61,8 @@ mcp.allowedHosts =
 # `workflows` to get the workflow tools.
 mcp.toolsets = content,nodes,workflows
 
-# `true` removes content_update, content_create, node_create, node_update, workflow_run,
-# cron_set and cron_delete from `tools/list`, and refuses them if called anyway.
+# `true` removes content_update, content_create, content_localize, node_create, node_update,
+# workflow_run, cron_set and cron_delete from `tools/list`, and refuses them if called anyway.
 mcp.readOnly = false
 
 # Repositories the node tools may use, comma-separated exact ids. Empty means every
@@ -124,6 +125,8 @@ The endpoint is `http://<host>:8080/api/com.enonic.app.grieg:mcp`, a stateless M
 | `content_type_get` | A content type's fields as dot paths, with input type, occurrences and config, depth-capped    |
 | `content_update`   | Change `displayName`, `language` or top-level scalar `data` fields, with conflict checking     |
 | `content_create`   | Create an item on draft, in progress, validated against its content type                       |
+| `project_list`     | The content projects the acting user can read, with language and parent projects               |
+| `content_localize` | Write a translation of an inherited item into a layer, on draft, which localizes it            |
 | `node_repos`       | Repositories and branches the acting user can read, with whether the node tools may write them |
 | `node_query`       | lib-node query (DSL or NoQL) with filters, sort, capped aggregations, `fields` and a cursor    |
 | `node_get`         | One node by id or path, with `data` (default), `permissions`, `indexConfig` or `fields`        |
@@ -141,17 +144,19 @@ The endpoint is `http://<host>:8080/api/com.enonic.app.grieg:mcp`, a stateless M
 
 The node tools run as the acting user too, so XP's node permissions decide what they can read and write. `system-repo` and `system.*` repositories are never available. `com.enonic.cms.*` repositories are read-only through `node_*`, since a lib-node write would bypass content validation, the workflow reset and project roles; content writes go through `content_update`. Branches default to `draft` for content repositories and `master` elsewhere. `expectedVersionKey` is checked inside lib-node's update editor, which has no lock: it catches a write that landed since your read, but not one landing during the update itself.
 
+Layers are how XP holds translations: a project with a parent inherits the parent's content, and an item edited in the layer turns from inherited to localized, after which edits in the parent no longer reach it. Every content summary carries its `project` and an `inheritance` of `inherited`, `localized` or `null` (created in that project). `content_search`, `content_get` and `content_update` take an optional `project`; a name the acting user holds no project role in is refused before any content is read, and `project_list` lists the readable ones. `content_localize` takes the layer and the item's id, which is the same in every project, plus the translated `displayName` and top-level `data` fields, and for an inherited item defaults `language` to the layer's, as Content Studio's Localize does, so `project` and `key` alone localize an item untranslated. It takes `expectedModifiedTime` like `content_update`. It writes to `draft` whatever `mcp.branch` says, and never publishes. It refuses a project without a parent, an item created in the layer itself, and an inherited item the call would not change, since only a real change localizes it. Item sets cannot be translated yet, and HtmlArea markup is written as given.
+
 `content_create` always writes to the `draft` branch, whatever `mcp.branch` says, with `requireValid` on and the workflow state set to in-progress, so nothing an agent creates goes live until someone publishes it. XP reports only the first validation error, and none for a missing required field, so the tool first checks the data against the content type's occurrence rules and names the offending paths, the first ten per refusal plus a count of the rest. `content_type_get` expands nested item sets and option sets four levels deep; a set on the fifth level is listed, marked `capped`, without its fields.
 
 The workflow tools are for administrators: they are listed only when the acting user holds `role:system.admin`, and each call checks the role again, so a user who lost it since `tools/list` is refused. To anyone else they answer with that reason rather than "Unknown tool". They follow the [Workflows](#workflows) and [Schedules](#schedules) rules of the admin tool and share its code. Runs are asynchronous: `workflow_run` returns a `runId` with status `running` (or `skipped` while another run is going), and `run_get` reads the result once it is `done` or `failed`. `cron_set` creates a workflow's schedule in `UTC` and enabled unless told otherwise, and every save makes the acting user the one the schedule runs as. For another application's job it takes the job `name` and `enabled` only, and keeps that job's user; a workflow schedule is always addressed by `workflowId`. Workflows themselves are created and edited in the admin tool, not over MCP. Results about a workflow carry an `adminUrl` to its page in the admin tool.
 
-Each successful write by `content_create`, `content_update`, `node_create`, `node_update`, `workflow_run`, `cron_set` or `cron_delete` also leaves one entry in XP's audit log, besides the entries XP writes for the change itself. The entry has type `grieg.mcp.<tool>`, the acting user as `user`, the written item in `objects`, and `tool` plus the written `fields` in `data` (for `cron_set`, the job fields the call changed). A content or node item, and the run node `workflow_run` creates, is written as `<repository>:<branch>:<id>` (the form XP uses for its own content entries, so a search by object finds both); a schedule is written as `scheduler:<job name>`. A refused, failed or no-op call writes none, and a failed audit write is logged without failing the call.
+Each successful write by `content_create`, `content_update`, `content_localize`, `node_create`, `node_update`, `workflow_run`, `cron_set` or `cron_delete` also leaves one entry in XP's audit log, besides the entries XP writes for the change itself. The entry has type `grieg.mcp.<tool>`, the acting user as `user`, the written item in `objects`, and `tool` plus the written `fields` in `data` (for `cron_set`, the job fields the call changed). A content or node item, and the run node `workflow_run` creates, is written as `<repository>:<branch>:<id>` (the form XP uses for its own content entries, so a search by object finds both); a schedule is written as `scheduler:<job name>`. A refused, failed or no-op call writes none, and a failed audit write is logged without failing the call.
 
 Summaries carry an `editUrl` into Content Studio. On the `draft` branch, edits need publishing in Content Studio to go live, and each edit resets the item's workflow state to in-progress.
 
 ### Cards in Claude Desktop
 
-Claude Desktop and claude.ai render the results of `workflow_list`, `run_list`, `run_get`, `cron_list`, `node_query`, `node_get`, `node_repos`, `content_search`, `content_get` and `content_type_get` as interactive cards ([MCP Apps](https://github.com/modelcontextprotocol/ext-apps)) that follow the host's light or dark theme. Claude Code, and any client without MCP Apps support, shows the same tools as text, as before. A card refreshes itself, pages a query and drills down (a workflow to its runs, a run to its steps, a query hit to its node, a node to its children, a content hit to the item, an item to its content type, folder or children) by calling the read tools through the host, as the acting user; it holds no key and makes no request of its own. It never writes: Run now, Enable, Disable and Delete schedule send Claude a request instead, so the write runs as a tool call behind the host's approval prompt and lands in the audit log. Desktop asks once before it shows a server's first card. The views are five `ui://grieg/*` resources built into the app as one self-contained HTML file; an app built without it logs `MCP serves no cards` once and serves the tools without views. Each card tool names its view in `_meta.ui.resourceUri`, in the deprecated flat `ui/resourceUri`, and in `openai/outputTemplate`, ChatGPT's alias for the same key.
+Claude Desktop and claude.ai render the results of `workflow_list`, `run_list`, `run_get`, `cron_list`, `node_query`, `node_get`, `node_repos`, `content_search`, `content_get` and `content_type_get` as interactive cards ([MCP Apps](https://github.com/modelcontextprotocol/ext-apps)) that follow the host's light or dark theme. Claude Code, and any client without MCP Apps support, shows the same tools as text, as before. A card refreshes itself, pages a query and drills down (a workflow to its runs, a run to its steps, a query hit to its node, a node to its children, a content hit to the item, an item to its content type, folder or children) by calling the read tools through the host, as the acting user, in the project the item came from; a layer item shows its project and an Inherited or Localized chip; it holds no key and makes no request of its own. It never writes: Run now, Enable, Disable and Delete schedule send Claude a request instead, so the write runs as a tool call behind the host's approval prompt and lands in the audit log. Desktop asks once before it shows a server's first card. The views are five `ui://grieg/*` resources built into the app as one self-contained HTML file; an app built without it logs `MCP serves no cards` once and serves the tools without views. Each card tool names its view in `_meta.ui.resourceUri`, in the deprecated flat `ui/resourceUri`, and in `openai/outputTemplate`, ChatGPT's alias for the same key.
 
 ### Authentication
 

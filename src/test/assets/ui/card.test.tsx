@@ -558,6 +558,39 @@ describe('content card', () => {
     expect(await screen.findByText('No content matches.')).toBeInTheDocument();
   });
 
+  it('should show the project and an inherited or localized chip on layer items only', () => {
+    renderCard({
+      total: 3,
+      start: 0,
+      count: 3,
+      hits: [
+        contentHit('a', { project: 'norway', inheritance: 'inherited' }),
+        contentHit('b', { project: 'norway', inheritance: 'localized' }),
+        contentHit('c', { project: 'default', inheritance: null }),
+      ],
+    });
+
+    const [inherited, localized, own] = screen.getAllByRole('listitem');
+    expect(within(inherited).getByText('norway')).toBeInTheDocument();
+    expect(within(inherited).getByText('Inherited')).toBeInTheDocument();
+    expect(within(localized).getByText('Localized')).toBeInTheDocument();
+    expect(within(own).queryByText('default')).not.toBeInTheDocument();
+    expect(within(own).queryByText(/Inherited|Localized/)).not.toBeInTheDocument();
+  });
+
+  it("should keep drill-downs in the item's project", async () => {
+    const hit = contentHit('a', { project: 'norway', inheritance: 'inherited', hasChildren: true });
+    const { host, user } = renderCard({ total: 1, start: 0, count: 1, hits: [hit] });
+    host.callTool.mockResolvedValue({ ok: true, data: { ...hit, data: {} } });
+
+    await user.click(screen.getByRole('button', { name: 'Browse Article a' }));
+    expect(host.callTool).toHaveBeenLastCalledWith('content_search', {
+      project: 'norway',
+      path: '/site/articles/a',
+      count: 20,
+    });
+  });
+
   it('should drill from a hit to the item through content_get', async () => {
     const { host, user } = renderCard({ total: 1, start: 0, count: 1, hits: [contentHit('a')] });
     host.callTool.mockResolvedValue({

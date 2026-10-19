@@ -56,6 +56,11 @@
       "description": "Change a content item's display name, language or data fields"
     },
     { "name": "content_create", "description": "Create a content item on draft, in progress" },
+    { "name": "project_list", "description": "Content projects and layers you can read" },
+    {
+      "name": "content_localize",
+      "description": "Write a translation of a content item into a layer, on draft"
+    },
     { "name": "node_repos", "description": "Repositories and branches you can read" },
     { "name": "node_query", "description": "Query repository nodes" },
     { "name": "node_get", "description": "One node by id or path" },

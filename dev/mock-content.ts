@@ -267,6 +267,8 @@ function summary(item: MockContent): Json {
     workflowState: item.workflowState ?? null,
     valid: item.valid ?? true,
     hasChildren: CONTENT.some((other) => parentOf(other.path) === item.path),
+    project: 'default',
+    inheritance: null,
     editUrl: `${EDIT_BASE}/${item.id}`,
   };
 }

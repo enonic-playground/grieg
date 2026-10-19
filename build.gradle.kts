@@ -30,6 +30,7 @@ dependencies {
     include("com.enonic.xp:lib-node:${xpVersion}")
     include("com.enonic.xp:lib-repo:${xpVersion}")
     include("com.enonic.xp:lib-content:${xpVersion}")
+    include("com.enonic.xp:lib-project:${xpVersion}")
     include("com.enonic.xp:lib-auth:${xpVersion}")
     include("com.enonic.xp:lib-context:${xpVersion}")
     include("com.enonic.xp:lib-scheduler:${xpVersion}")

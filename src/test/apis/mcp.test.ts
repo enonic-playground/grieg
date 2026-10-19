@@ -255,6 +255,8 @@ describe('tool annotations', () => {
       content_type_get: read,
       content_update: [false, true, false],
       content_create: write,
+      content_localize: write,
+      project_list: read,
       node_repos: read,
       node_query: read,
       node_get: read,
